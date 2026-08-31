@@ -171,6 +171,7 @@ class FanDaemon:
         self.internal_rpm: int = 0
         self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
+        self._stop_event     = threading.Event()  # usato per sleep interrompibile senza polling
 
     # -------------------------------------------------------------------
     # Setup iniziale e IPC
@@ -402,17 +403,17 @@ class FanDaemon:
         logger.info("Demone terminato")
 
     def _sleep_interruptible(self, seconds: float) -> None:
-        """Sleep interrompibile da SIGTERM/SIGINT con step di 0.2s."""
-        elapsed = 0.0
-        step = 0.2
-        while self.running and elapsed < seconds:
-            time.sleep(step)
-            elapsed += step
+        """Sleep bloccante interrompibile da stop().
+        Usa threading.Event: zero wakeup inutili, il thread rimane idle finché
+        non scade il timeout o viene segnalato lo stop.
+        """
+        self._stop_event.wait(timeout=seconds)
 
     def stop(self) -> None:
         """Segnala al demone di terminare il ciclo principale."""
         logger.info("Richiesta di stop ricevuta")
         self.running = False
+        self._stop_event.set()  # Sveglia immediatamente qualsiasi sleep in corso
 
 
 # ===========================================================================

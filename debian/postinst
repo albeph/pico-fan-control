@@ -1,0 +1,182 @@
+#!/bin/sh
+# debian/postinst - Script post-installazione pico-fan
+# =====================================================
+# Eseguito automaticamente da dpkg dopo l'installazione del pacchetto.
+# Si occupa di:
+#   1. Copiare i sorgenti del modulo kernel in /usr/src/
+#   2. Registrare il modulo in DKMS
+#   3. Compilare il modulo per il kernel corrente
+#   4. Caricare il modulo kernel
+#   5. Abilitare e avviare il servizio systemd
+#   6. Installare le regole udev
+
+set -e
+
+PACKAGE_NAME="pico-fan"
+MODULE_NAME="pico_fan_hwmon"
+MODULE_VERSION="1.0.0"
+DKMS_SRC="/usr/src/${PACKAGE_NAME}-${MODULE_VERSION}"
+INSTALL_LIB="/usr/lib/pico-fan"
+CONFIG_DIR="/etc/pico-fan"
+
+# Colori (opzionali, solo se terminale interattivo)
+if [ -t 1 ]; then
+    GREEN="\033[92m"
+    YELLOW="\033[93m"
+    RED="\033[91m"
+    RESET="\033[0m"
+    BOLD="\033[1m"
+else
+    GREEN="" YELLOW="" RED="" RESET="" BOLD=""
+fi
+
+info()    { echo "${BOLD}${GREEN}[pico-fan]${RESET} $*"; }
+warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
+error()   { echo "${BOLD}${RED}[pico-fan] ERRORE:${RESET} $*" >&2; }
+
+# ---------------------------------------------------------------------------
+# Funzione: registrazione e compilazione DKMS
+# ---------------------------------------------------------------------------
+dkms_setup() {
+    info "Registrazione sorgente kernel in DKMS ..."
+
+    # Crea directory sorgente
+    mkdir -p "${DKMS_SRC}"
+
+    # Copia i file sorgente
+    if [ -d "${INSTALL_LIB}/kernel_module" ]; then
+        cp -f "${INSTALL_LIB}/kernel_module/pico_fan_hwmon.c" "${DKMS_SRC}/"
+        cp -f "${INSTALL_LIB}/kernel_module/Makefile"          "${DKMS_SRC}/"
+        cp -f "${INSTALL_LIB}/kernel_module/dkms.conf"         "${DKMS_SRC}/"
+    else
+        error "Directory kernel_module non trovata in ${INSTALL_LIB}"
+        return 1
+    fi
+
+    # Aggiunge il modulo a DKMS (ignora se già presente)
+    if ! dkms status "${PACKAGE_NAME}/${MODULE_VERSION}" 2>/dev/null | grep -q "added\|built\|installed"; then
+        dkms add -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" || {
+            warning "dkms add fallito, il modulo potrebbe essere già registrato"
+        }
+    fi
+
+    # Compila il modulo per il kernel corrente
+    KVER=$(uname -r)
+    info "Compilazione modulo per kernel ${KVER} ..."
+    if dkms build -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" -k "${KVER}"; then
+        info "Compilazione completata."
+    else
+        warning "Compilazione DKMS fallita per kernel ${KVER}."
+        warning "Il modulo verrà compilato automaticamente al prossimo aggiornamento kernel."
+        warning "Verificare i linux-headers: apt install linux-headers-${KVER}"
+        return 0    # Non fatale: il daemon può funzionare senza il modulo hwmon
+    fi
+
+    # Installa il modulo compilato
+    if dkms install -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" -k "${KVER}" --force; then
+        info "Modulo kernel installato."
+    else
+        warning "dkms install fallito. Installazione manuale: modprobe ${MODULE_NAME}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: caricamento modulo kernel
+# ---------------------------------------------------------------------------
+load_module() {
+    if modinfo "${MODULE_NAME}" > /dev/null 2>&1; then
+        info "Caricamento modulo ${MODULE_NAME} ..."
+        if modprobe "${MODULE_NAME}" 2>/dev/null; then
+            info "Modulo ${MODULE_NAME} caricato."
+        else
+            warning "Impossibile caricare ${MODULE_NAME}. Riavviare il sistema."
+        fi
+    else
+        warning "Modulo ${MODULE_NAME} non trovato. Compilare manualmente con DKMS."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: configurazione systemd
+# ---------------------------------------------------------------------------
+systemd_setup() {
+    if command -v systemctl > /dev/null 2>&1; then
+        info "Ricarica configurazione systemd ..."
+        systemctl daemon-reload
+
+        info "Abilitazione servizio pico-fan ..."
+        systemctl enable pico-fan.service 2>/dev/null || \
+            warning "Impossibile abilitare il servizio systemd"
+
+        # Non avviamo subito: richiede configurazione (pico-fan-setup)
+        info "Servizio abilitato. Avviare con: systemctl start pico-fan"
+    else
+        warning "systemd non disponibile."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: configurazione udev
+# ---------------------------------------------------------------------------
+udev_setup() {
+    info "Ricarica regole udev ..."
+    if command -v udevadm > /dev/null 2>&1; then
+        udevadm control --reload-rules 2>/dev/null || true
+        udevadm trigger --subsystem-match=tty 2>/dev/null || true
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: creazione directory di configurazione
+# ---------------------------------------------------------------------------
+config_setup() {
+    if [ ! -d "${CONFIG_DIR}" ]; then
+        mkdir -p "${CONFIG_DIR}"
+        chmod 755 "${CONFIG_DIR}"
+        info "Directory configurazione creata: ${CONFIG_DIR}"
+    fi
+
+    # Crea configurazione di esempio se non esiste
+    if [ ! -f "${CONFIG_DIR}/config.json" ] && \
+       [ -f "${INSTALL_LIB}/config.json.example" ]; then
+        cp "${INSTALL_LIB}/config.json.example" "${CONFIG_DIR}/config.json.example"
+        info "Template configurazione: ${CONFIG_DIR}/config.json.example"
+    fi
+}
+
+# ===========================================================================
+# Main
+# ===========================================================================
+case "$1" in
+    configure)
+        info "=== Post-installazione pico-fan v${MODULE_VERSION} ==="
+
+        config_setup
+        dkms_setup
+        load_module
+        systemd_setup
+        udev_setup
+
+        echo ""
+        info "=== Installazione completata! ==="
+        echo ""
+        echo "  Prossimi passi:"
+        echo "  1. Collegare il Raspberry Pi Pico via USB"
+        echo "  2. Eseguire il wizard: sudo pico-fan-setup"
+        echo "  3. Avviare il demone: sudo systemctl start pico-fan"
+        echo "  4. Verificare: sensors"
+        echo ""
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        error "Argomento postinst non riconosciuto: '$1'"
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

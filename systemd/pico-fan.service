@@ -1,0 +1,39 @@
+[Unit]
+Description=Pico Fan Control Daemon - USB Fan Sync via Raspberry Pi Pico
+Documentation=https://github.com/pico-fan-control/pico-fan-control
+After=network.target systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+# Riavvio automatico se il demone crasha (escluso stop manuale)
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Percorso dello script demone installato
+ExecStart=/usr/bin/python3 /usr/lib/pico-fan/fan_daemon.py
+
+# Percorso wizard (per comodità)
+ExecStartPre=/bin/bash -c '[ -f /etc/pico-fan/config.json ] || echo "WARN: /etc/pico-fan/config.json mancante, eseguire: pico-fan-setup"'
+
+# Riavvio automatico in caso di crash, con backoff esponenziale
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Logging verso journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pico-fan
+
+# Permessi e sicurezza
+PrivateTmp=false
+ProtectSystem=false
+NoNewPrivileges=true
+
+# Variabili d'ambiente
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

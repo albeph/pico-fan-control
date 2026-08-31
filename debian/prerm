@@ -1,0 +1,105 @@
+#!/bin/sh
+# debian/prerm - Script pre-rimozione pico-fan
+# ============================================
+# Eseguito prima della rimozione del pacchetto.
+# Si occupa di:
+#   1. Fermare e disabilitare il servizio systemd
+#   2. Scaricare il modulo kernel dal kernel live
+#   3. Rimuovere il modulo da DKMS
+
+set -e
+
+PACKAGE_NAME="pico-fan"
+MODULE_NAME="pico_fan_hwmon"
+MODULE_VERSION="1.0.0"
+HWMON_SYSFS="/sys/class/hwmon"
+
+if [ -t 1 ]; then
+    YELLOW="\033[93m" BOLD="\033[1m" RESET="\033[0m" GREEN="\033[92m"
+else
+    YELLOW="" BOLD="" RESET="" GREEN=""
+fi
+
+info()    { echo "${BOLD}${GREEN}[pico-fan]${RESET} $*"; }
+warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
+
+# ---------------------------------------------------------------------------
+# Funzione: stop e disabilitazione servizio systemd
+# ---------------------------------------------------------------------------
+systemd_stop() {
+    if command -v systemctl > /dev/null 2>&1; then
+        info "Fermando il servizio pico-fan ..."
+
+        # Prima imposta RPM a 0 nell'hwmon sysfs (ventola spenta nei sensori)
+        if [ -d "${HWMON_SYSFS}" ]; then
+            for hwmon_dir in "${HWMON_SYSFS}"/hwmon*; do
+                name_file="${hwmon_dir}/name"
+                if [ -r "${name_file}" ]; then
+                    name=$(cat "${name_file}" 2>/dev/null || true)
+                    if [ "${name}" = "pico_fan" ]; then
+                        echo "0" > "${hwmon_dir}/fan1_input"    2>/dev/null || true
+                        echo "0" > "${hwmon_dir}/pwm1"          2>/dev/null || true
+                        echo "0" > "${hwmon_dir}/fan1_connected" 2>/dev/null || true
+                    fi
+                fi
+            done
+        fi
+
+        systemctl stop    pico-fan.service 2>/dev/null || true
+        systemctl disable pico-fan.service 2>/dev/null || true
+        info "Servizio pico-fan fermato e disabilitato."
+    else
+        warning "systemd non disponibile, stop manuale del demone richiesto."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: scaricamento modulo kernel
+# ---------------------------------------------------------------------------
+unload_module() {
+    if lsmod | grep -q "^${MODULE_NAME}"; then
+        info "Scaricamento modulo kernel ${MODULE_NAME} ..."
+        modprobe -r "${MODULE_NAME}" 2>/dev/null || \
+            warning "Impossibile scaricare ${MODULE_NAME}. Sarà rimosso al prossimo riavvio."
+    else
+        info "Modulo ${MODULE_NAME} non caricato."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: rimozione da DKMS
+# ---------------------------------------------------------------------------
+dkms_remove() {
+    if command -v dkms > /dev/null 2>&1; then
+        info "Rimozione modulo da DKMS ..."
+        dkms remove -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" --all 2>/dev/null || \
+            warning "dkms remove fallito (modulo potrebbe non essere registrato)."
+    fi
+}
+
+# ===========================================================================
+# Main
+# ===========================================================================
+case "$1" in
+    remove|deconfigure)
+        info "=== Pre-rimozione pico-fan ==="
+        systemd_stop
+        unload_module
+        dkms_remove
+        ;;
+
+    upgrade|failed-upgrade)
+        info "=== Pre-upgrade pico-fan ==="
+        systemd_stop
+        unload_module
+        # Non rimuovere da DKMS durante upgrade
+        ;;
+
+    *)
+        warning "Argomento prerm non riconosciuto: '$1'"
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,33 @@
+{
+  "_comment": "Configurazione pico-fan-control - Copiare in /etc/pico-fan/config.json e personalizzare",
+  "_note": "Eseguire 'pico-fan-setup' per configurare automaticamente",
+
+  "pico_serial_by_id": "/dev/serial/by-id/usb-MicroPython_Board_in_FS_mode_e661640843819a28-if00",
+
+  "ibm_fan_path": "/proc/acpi/ibm/fan",
+
+  "hwmon_fan_path": "",
+
+  "hwmon_path": "",
+
+  "rpm_threshold_high": 4000,
+  "rpm_threshold_mid":  2500,
+  "duty_high":          100,
+  "duty_mid":           50,
+  "duty_low":           0,
+
+  "poll_interval":      2.0,
+  "reconnect_interval": 5.0,
+
+  "_doc_pico_serial_by_id": "Path stabile in /dev/serial/by-id/ del Raspberry Pi Pico. Generato da pico-fan-setup.",
+  "_doc_ibm_fan_path":      "Path per ThinkPad ACPI fan. Default: /proc/acpi/ibm/fan",
+  "_doc_hwmon_fan_path":    "Path sysfs fan hwmon generico. Lasciare vuoto per auto-rilevamento.",
+  "_doc_hwmon_path":        "Path base hwmon del modulo pico_fan. Lasciare vuoto per auto-rilevamento.",
+  "_doc_rpm_threshold_high":"RPM interni sopra cui la ventola esterna va al 100%",
+  "_doc_rpm_threshold_mid": "RPM interni sopra cui la ventola esterna va al 50%",
+  "_doc_duty_high":         "Duty cycle (%) quando RPM > rpm_threshold_high",
+  "_doc_duty_mid":          "Duty cycle (%) quando rpm_threshold_mid <= RPM <= rpm_threshold_high",
+  "_doc_duty_low":          "Duty cycle (%) quando RPM < rpm_threshold_mid",
+  "_doc_poll_interval":     "Intervallo (secondi) tra le letture RPM",
+  "_doc_reconnect_interval":"Intervallo (secondi) tra tentativi di riconnessione USB"
+}

@@ -1,0 +1,41 @@
+# /etc/udev/rules.d/99-pico-fan.rules
+# Regole udev per Raspberry Pi Pico / RP2040 usati come controller ventola
+#
+# Effetti:
+#   1. Assegna permessi di lettura/scrittura al gruppo "dialout"
+#   2. Crea il symlink /dev/pico-fan (permanente, stabile)
+#   3. Invia notifica al demone quando il dispositivo appare/scompare
+#
+# Ricarica con: sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# ---------------------------------------------------------------------------
+# Match: Raspberry Pi Pico in modalità CDC-ACM (USB seriale)
+# Vendor ID 2e8a = Raspberry Pi Foundation
+# Product ID 0005 = Pico CDC (MicroPython), 000a = Pico SDK CDC
+# ---------------------------------------------------------------------------
+
+# Permessi al gruppo dialout per entrambi i Product ID noti
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="0005", \
+    GROUP="dialout", MODE="0664", \
+    SYMLINK+="pico-fan", \
+    TAG+="systemd"
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000a", \
+    GROUP="dialout", MODE="0664", \
+    SYMLINK+="pico-fan", \
+    TAG+="systemd"
+
+# Regola generica per qualsiasi Pico con MicroPython (manufacturer string)
+SUBSYSTEM=="tty", ATTRS{manufacturer}=="MicroPython", \
+    GROUP="dialout", MODE="0664", \
+    SYMLINK+="pico-fan-mp"
+
+# ---------------------------------------------------------------------------
+# Notifica al demone systemd quando il dispositivo viene collegato
+# (facoltativo: il demone gestisce autonomamente la riconnessione)
+# ---------------------------------------------------------------------------
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ACTION=="add", \
+    RUN+="/bin/systemctl try-restart pico-fan.service"
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ACTION=="remove", \
+    RUN+="/bin/systemctl kill --kill-who=main --signal=SIGUSR1 pico-fan.service 2>/dev/null || true"

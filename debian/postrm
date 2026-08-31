@@ -1,0 +1,104 @@
+#!/bin/sh
+# debian/postrm - Script post-rimozione pico-fan
+# ================================================
+# Eseguito dopo la rimozione del pacchetto.
+# Si occupa di:
+#   1. Reload systemd
+#   2. Pulizia sorgenti DKMS da /usr/src/
+#   3. Pulizia directory configurazione (solo su purge)
+#   4. Reload regole udev
+
+set -e
+
+PACKAGE_NAME="pico-fan"
+MODULE_VERSION="1.0.0"
+DKMS_SRC="/usr/src/${PACKAGE_NAME}-${MODULE_VERSION}"
+CONFIG_DIR="/etc/pico-fan"
+INSTALL_LIB="/usr/lib/pico-fan"
+
+if [ -t 1 ]; then
+    GREEN="\033[92m" YELLOW="\033[93m" BOLD="\033[1m" RESET="\033[0m"
+else
+    GREEN="" YELLOW="" BOLD="" RESET=""
+fi
+
+info()    { echo "${BOLD}${GREEN}[pico-fan]${RESET} $*"; }
+warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
+
+# ---------------------------------------------------------------------------
+# Funzione: reload systemd
+# ---------------------------------------------------------------------------
+systemd_reload() {
+    if command -v systemctl > /dev/null 2>&1; then
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl reset-failed  2>/dev/null || true
+        info "systemd ricaricato."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: pulizia sorgenti DKMS
+# ---------------------------------------------------------------------------
+cleanup_dkms_src() {
+    if [ -d "${DKMS_SRC}" ]; then
+        info "Pulizia directory sorgente DKMS: ${DKMS_SRC} ..."
+        rm -rf "${DKMS_SRC}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: pulizia configurazione (solo su purge)
+# ---------------------------------------------------------------------------
+cleanup_config() {
+    if [ -d "${CONFIG_DIR}" ]; then
+        info "Pulizia configurazione: ${CONFIG_DIR} ..."
+        rm -rf "${CONFIG_DIR}"
+    fi
+    if [ -d "${INSTALL_LIB}" ]; then
+        rm -rf "${INSTALL_LIB}" 2>/dev/null || true
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Funzione: reload udev
+# ---------------------------------------------------------------------------
+udev_reload() {
+    if command -v udevadm > /dev/null 2>&1; then
+        udevadm control --reload-rules 2>/dev/null || true
+    fi
+}
+
+# ===========================================================================
+# Main
+# ===========================================================================
+case "$1" in
+    remove)
+        info "=== Post-rimozione pico-fan ==="
+        cleanup_dkms_src
+        systemd_reload
+        udev_reload
+        info "Pacchetto rimosso. La configurazione in ${CONFIG_DIR} è stata conservata."
+        info "Per rimuovere anche la configurazione: apt purge pico-fan"
+        ;;
+
+    purge)
+        info "=== Purge completo pico-fan ==="
+        cleanup_dkms_src
+        cleanup_config
+        systemd_reload
+        udev_reload
+        info "Rimozione completa terminata. Nessun file residuo."
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        systemd_reload
+        ;;
+
+    *)
+        warning "Argomento postrm non riconosciuto: '$1'"
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

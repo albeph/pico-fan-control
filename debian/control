@@ -1,0 +1,34 @@
+Source: pico-fan
+Section: utils
+Priority: optional
+Maintainer: pico-fan-control project <pico-fan@example.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/pico-fan-control/pico-fan-control
+Rules-Requires-Root: no
+
+Package: pico-fan
+Version: 1.0.0
+Architecture: all
+Depends:
+ ${misc:Depends},
+ python3 (>= 3.9),
+ python3-serial,
+ dkms,
+ lm-sensors,
+ linux-headers-generic | linux-headers-amd64 | linux-headers-arm64 | linux-headers-armhf,
+ udev
+Recommends:
+ minicom
+Description: Controllo ventola USB via Raspberry Pi Pico con integrazione HWMON
+ pico-fan-control gestisce una ventola a 4 pin collegata a un Raspberry Pi Pico
+ tramite interfaccia USB CDC seriale. Include:
+ .
+  - Firmware MicroPython per RP2040 (PWM 25kHz + tachimetro interrupt)
+  - Driver kernel HWMON virtuale (visibile con "sensors")
+  - Demone di sincronizzazione RPM fault-tolerant
+  - Wizard interattivo di configurazione
+  - Integrazione completa systemd e udev
+ .
+ La ventola esterna si sincronizza automaticamente con gli RPM della ventola
+ interna del sistema (supporto ThinkPad ACPI e hwmon generico).

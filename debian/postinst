@@ -35,68 +35,6 @@ warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
 error()   { echo "${BOLD}${RED}[pico-fan] ERRORE:${RESET} $*" >&2; }
 
 # ---------------------------------------------------------------------------
-# Funzione: registrazione e compilazione DKMS
-# ---------------------------------------------------------------------------
-dkms_setup() {
-    info "Registrazione sorgente kernel in DKMS ..."
-
-    # Crea directory sorgente
-    mkdir -p "${DKMS_SRC}"
-
-    # Copia i file sorgente
-    if [ -d "${INSTALL_LIB}/kernel_module" ]; then
-        cp -f "${INSTALL_LIB}/kernel_module/pico_fan_hwmon.c" "${DKMS_SRC}/"
-        cp -f "${INSTALL_LIB}/kernel_module/Makefile"          "${DKMS_SRC}/"
-        cp -f "${INSTALL_LIB}/kernel_module/dkms.conf"         "${DKMS_SRC}/"
-    else
-        error "Directory kernel_module non trovata in ${INSTALL_LIB}"
-        return 1
-    fi
-
-    # Aggiunge il modulo a DKMS (ignora se già presente)
-    if ! dkms status "${PACKAGE_NAME}/${MODULE_VERSION}" 2>/dev/null | grep -q "added\|built\|installed"; then
-        dkms add -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" || {
-            warning "dkms add fallito, il modulo potrebbe essere già registrato"
-        }
-    fi
-
-    # Compila il modulo per il kernel corrente
-    KVER=$(uname -r)
-    info "Compilazione modulo per kernel ${KVER} ..."
-    if dkms build -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" -k "${KVER}"; then
-        info "Compilazione completata."
-    else
-        warning "Compilazione DKMS fallita per kernel ${KVER}."
-        warning "Il modulo verrà compilato automaticamente al prossimo aggiornamento kernel."
-        warning "Verificare i linux-headers: apt install linux-headers-${KVER}"
-        return 0    # Non fatale: il daemon può funzionare senza il modulo hwmon
-    fi
-
-    # Installa il modulo compilato
-    if dkms install -m "${PACKAGE_NAME}" -v "${MODULE_VERSION}" -k "${KVER}" --force; then
-        info "Modulo kernel installato."
-    else
-        warning "dkms install fallito. Installazione manuale: modprobe ${MODULE_NAME}"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Funzione: caricamento modulo kernel
-# ---------------------------------------------------------------------------
-load_module() {
-    if modinfo "${MODULE_NAME}" > /dev/null 2>&1; then
-        info "Caricamento modulo ${MODULE_NAME} ..."
-        if modprobe "${MODULE_NAME}" 2>/dev/null; then
-            info "Modulo ${MODULE_NAME} caricato."
-        else
-            warning "Impossibile caricare ${MODULE_NAME}. Riavviare il sistema."
-        fi
-    else
-        warning "Modulo ${MODULE_NAME} non trovato. Compilare manualmente con DKMS."
-    fi
-}
-
-# ---------------------------------------------------------------------------
 # Funzione: configurazione systemd
 # ---------------------------------------------------------------------------
 systemd_setup() {
@@ -149,11 +87,9 @@ config_setup() {
 # ===========================================================================
 case "$1" in
     configure)
-        info "=== Post-installazione pico-fan v${MODULE_VERSION} ==="
+        info "=== Post-installazione pico-fan ==="
 
         config_setup
-        dkms_setup
-        load_module
         systemd_setup
         udev_setup
 
@@ -164,7 +100,7 @@ case "$1" in
         echo "  1. Collegare il Raspberry Pi Pico via USB"
         echo "  2. Eseguire il wizard: sudo pico-fan-setup"
         echo "  3. Avviare il demone: sudo systemctl start pico-fan"
-        echo "  4. Verificare: sensors"
+        echo "  4. Verificare stato: pico-fan-status"
         echo ""
         ;;
 

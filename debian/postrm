@@ -37,16 +37,6 @@ systemd_reload() {
 }
 
 # ---------------------------------------------------------------------------
-# Funzione: pulizia sorgenti DKMS
-# ---------------------------------------------------------------------------
-cleanup_dkms_src() {
-    if [ -d "${DKMS_SRC}" ]; then
-        info "Pulizia directory sorgente DKMS: ${DKMS_SRC} ..."
-        rm -rf "${DKMS_SRC}"
-    fi
-}
-
-# ---------------------------------------------------------------------------
 # Funzione: pulizia configurazione (solo su purge)
 # ---------------------------------------------------------------------------
 cleanup_config() {
@@ -74,7 +64,6 @@ udev_reload() {
 case "$1" in
     remove)
         info "=== Post-rimozione pico-fan ==="
-        cleanup_dkms_src
         systemd_reload
         udev_reload
         info "Pacchetto rimosso. La configurazione in ${CONFIG_DIR} è stata conservata."
@@ -83,7 +72,6 @@ case "$1" in
 
     purge)
         info "=== Purge completo pico-fan ==="
-        cleanup_dkms_src
         cleanup_config
         systemd_reload
         udev_reload

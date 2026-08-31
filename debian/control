@@ -13,17 +13,15 @@ Version: 1.0.0
 Architecture: all
 Depends: python3 (>= 3.9),
  python3-serial,
- dkms,
  lm-sensors,
- linux-headers-generic | linux-headers-amd64 | linux-headers-arm64 | linux-headers-armhf | proxmox-default-headers | pve-headers,
  udev
 Recommends: minicom
-Description: Controllo ventola USB via Raspberry Pi Pico con integrazione HWMON
+Description: Controllo ventola USB via Raspberry Pi Pico CLI Status
  pico-fan-control gestisce una ventola a 4 pin collegata a un Raspberry Pi Pico
  tramite interfaccia USB CDC seriale. Include:
  .
   - Firmware MicroPython per RP2040 (PWM 25kHz + tachimetro interrupt)
-  - Driver kernel HWMON virtuale (visibile con "sensors")
+  - Interfaccia CLI "pico-fan-status" per la diagnostica in tempo reale
   - Demone di sincronizzazione RPM fault-tolerant
   - Wizard interattivo di configurazione
   - Integrazione completa systemd e udev

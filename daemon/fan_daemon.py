@@ -68,83 +68,6 @@ DEFAULT_CONFIG  = {
 
 BAUDRATE              = 115200
 SERIAL_TIMEOUT        = 2.0
-HWMON_MODULE_NAME     = "pico_fan"
-
-# ---------------------------------------------------------------------------
-# Soglie duty -> stringa comando Pico
-# ---------------------------------------------------------------------------
-DUTY_MAP = {100: "100", 50: "50", 0: "0"}
-
-
-# ===========================================================================
-# Utilità hwmon sysfs
-# ===========================================================================
-
-def find_hwmon_path(module_name: str = HWMON_MODULE_NAME) -> Optional[str]:
-    """
-    Cerca il path hwmon del modulo pico_fan in /sys/class/hwmon/hwmon*/name.
-    Restituisce il percorso base (es. /sys/class/hwmon/hwmon3) o None.
-    """
-    base = Path("/sys/class/hwmon")
-    if not base.exists():
-        return None
-    for hwmon_dir in sorted(base.iterdir()):
-        name_file = hwmon_dir / "name"
-        try:
-            name = name_file.read_text().strip()
-            if name == module_name:
-                logger.debug("hwmon trovato in: %s", hwmon_dir)
-                return str(hwmon_dir)
-        except OSError:
-            continue
-    return None
-
-
-def write_sysfs(path: str, value: str) -> bool:
-    """Scrive un valore in un file sysfs. Restituisce True in caso di successo."""
-    try:
-        with open(path, "w") as f:
-            f.write(str(value))
-        return True
-    except OSError as exc:
-        logger.debug("Impossibile scrivere %s: %s", path, exc)
-        return False
-
-
-def find_platform_device_path(driver_name: str = "pico_fan") -> Optional[str]:
-    """
-    Cerca il path del platform device in /sys/bus/platform/devices/.
-    Restituisce es. /sys/bus/platform/devices/pico_fan.0 o None.
-    """
-    base = Path("/sys/bus/platform/devices")
-    if not base.exists():
-        return None
-    for dev_dir in base.iterdir():
-        if dev_dir.name.startswith(driver_name):
-            connected_file = dev_dir / "fan1_connected"
-            if connected_file.exists():
-                logger.debug("Platform device trovato: %s", dev_dir)
-                return str(dev_dir)
-    return None
-
-
-def update_hwmon(hwmon_path: Optional[str], rpm: int, duty: int, connected: bool) -> None:
-    """
-    Aggiorna gli attributi sysfs del modulo hwmon con i valori correnti.
-    - fan1_input e pwm1 → /sys/class/hwmon/hwmonX/
-    - fan1_connected    → /sys/bus/platform/devices/pico_fan.0/
-    Silenzioso se hwmon non è disponibile.
-    """
-    if not hwmon_path:
-        return
-    write_sysfs(os.path.join(hwmon_path, "fan1_input"), str(rpm))
-    write_sysfs(os.path.join(hwmon_path, "pwm1"),       str(int(duty * 255 / 100)))
-    # fan1_connected è sul platform device, non sull'hwmon
-    pdev_path = find_platform_device_path()
-    if pdev_path:
-        write_sysfs(os.path.join(pdev_path, "fan1_connected"), "1" if connected else "0")
-
-
 # ===========================================================================
 # Lettura RPM ventola interna
 # ===========================================================================
@@ -170,21 +93,12 @@ def read_internal_rpm_ibm(ibm_fan_path: str) -> Optional[int]:
 def read_internal_rpm_hwmon() -> Optional[int]:
     """
     Lettura RPM da hwmon generica (es. /sys/class/hwmon/hwmon*/fan1_input).
-    Scansiona tutti gli hwmon escludendo pico_fan.
     """
     base = Path("/sys/class/hwmon")
     if not base.exists():
         return None
 
     for hwmon_dir in sorted(base.iterdir()):
-        name_file = hwmon_dir / "name"
-        try:
-            name = name_file.read_text().strip()
-            if name == HWMON_MODULE_NAME:
-                continue    # Salta il nostro modulo
-        except OSError:
-            continue
-
         # Cerca file fan*_input in questo hwmon
         for fan_file in sorted(hwmon_dir.glob("fan*_input")):
             try:
@@ -256,16 +170,72 @@ class FanDaemon:
         self.current_duty    = -1          # -1 = non ancora inviato
         self.serial_conn: Optional[serial.Serial] = None
         self.pico_port: str  = ""
-        self.hwmon_path: Optional[str] = None
         self.pico_rpm: int   = 0
+        self.internal_rpm: int = 0
+        self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
 
     # -------------------------------------------------------------------
-    # Setup iniziale
+    # Setup IPC e inziale
     # -------------------------------------------------------------------
 
+    def _start_ipc_server(self) -> None:
+        """Avvia un server socket UNIX per fornire lo stato alla CLI."""
+        if os.path.exists(self.sock_path):
+            try:
+                os.remove(self.sock_path)
+            except OSError:
+                pass
+        
+        try:
+            import socket
+            self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.server_sock.bind(self.sock_path)
+            self.server_sock.listen(5)
+            os.chmod(self.sock_path, 0o666)  # Permette lettura a tutti gli utenti
+        except Exception as exc:
+            logger.error("Impossibile creare socket IPC: %s", exc)
+            return
+
+        def _server_loop():
+            while self.running:
+                try:
+                    self.server_sock.settimeout(1.0)
+                    conn, _ = self.server_sock.accept()
+                    state = {
+                        "connected": self.serial_conn is not None,
+                        "pico_port": self.pico_port,
+                        "internal_rpm": self.internal_rpm,
+                        "pico_rpm": self.pico_rpm,
+                        "current_duty": self.current_duty if self.current_duty >= 0 else 0,
+                        "version": __version__
+                    }
+                    conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
+                    conn.close()
+                except socket.timeout:
+                    continue
+                except Exception as exc:
+                    if self.running:
+                        logger.error("Errore IPC client: %s", exc)
+
+        self.ipc_thread = threading.Thread(target=_server_loop, daemon=True)
+        self.ipc_thread.start()
+
+    def _stop_ipc_server(self) -> None:
+        """Ferma il server socket IPC e ripulisce il file."""
+        if hasattr(self, "server_sock"):
+            try:
+                self.server_sock.close()
+            except Exception:
+                pass
+        if os.path.exists(self.sock_path):
+            try:
+                os.remove(self.sock_path)
+            except OSError:
+                pass
+
     def setup(self) -> None:
-        """Inizializza il path del dispositivo Pico e hwmon."""
+        """Inizializza il path del dispositivo Pico."""
         # Risolvi path seriale
         by_id = self.config.get("pico_serial_by_id", "")
         if not by_id:
@@ -280,21 +250,8 @@ class FanDaemon:
             self.pico_port = real_path    # Salva per retry
         else:
             self.pico_port = real_path
-
-        # Cerca hwmon
-        custom_hwmon = self.config.get("hwmon_path", "")
-        if custom_hwmon and os.path.isdir(custom_hwmon):
-            self.hwmon_path = custom_hwmon
-        else:
-            self.hwmon_path = find_hwmon_path()
-
-        if self.hwmon_path:
-            logger.info("hwmon pico_fan: %s", self.hwmon_path)
-        else:
-            logger.warning(
-                "Modulo hwmon pico_fan non trovato. "
-                "'sensors' non mostrerà i dati. Caricare: modprobe pico_fan_hwmon"
-            )
+        
+        self._start_ipc_server()
 
     # -------------------------------------------------------------------
     # Gestione connessione seriale
@@ -407,27 +364,26 @@ class FanDaemon:
                         "Pico non raggiungibile, nuovo tentativo tra %ds",
                         reconnect_interval
                     )
-                    update_hwmon(self.hwmon_path, 0, 0, False)
                     self._sleep_interruptible(reconnect_interval)
                     continue
 
             # ----------------------------------------------------------------
             # Fase 2: Lettura RPM interni
             # ----------------------------------------------------------------
-            internal_rpm = read_internal_rpm(self.config)
-            logger.debug("RPM interni: %d", internal_rpm)
+            self.internal_rpm = read_internal_rpm(self.config)
+            logger.debug("RPM interni: %d", self.internal_rpm)
 
             # ----------------------------------------------------------------
             # Fase 3: Calcolo duty e invio comando (solo al cambio)
             # ----------------------------------------------------------------
-            target_duty = compute_target_duty(internal_rpm, self.config)
+            target_duty = compute_target_duty(self.internal_rpm, self.config)
 
             if target_duty != self.current_duty:
                 logger.info(
                     "Cambio duty: %s%% -> %s%% (RPM interni: %d)",
                     self.current_duty if self.current_duty >= 0 else "N/A",
                     target_duty,
-                    internal_rpm,
+                    self.internal_rpm,
                 )
                 success = self._set_duty(target_duty)
                 if success:
@@ -441,21 +397,11 @@ class FanDaemon:
             self.pico_rpm = self._fetch_pico_rpm()
             logger.debug("RPM ventola esterna: %d", self.pico_rpm)
 
-            # ----------------------------------------------------------------
-            # Fase 5: Aggiornamento hwmon
-            # ----------------------------------------------------------------
-            update_hwmon(
-                self.hwmon_path,
-                self.pico_rpm,
-                self.current_duty if self.current_duty >= 0 else 0,
-                connected=self.serial_conn is not None,
-            )
-
             self._sleep_interruptible(poll_interval)
 
         # Cleanup all'uscita
         self._disconnect()
-        update_hwmon(self.hwmon_path, 0, 0, False)
+        self._stop_ipc_server()
         logger.info("Demone terminato")
 
     def _sleep_interruptible(self, seconds: float) -> None:

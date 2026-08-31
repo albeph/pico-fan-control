@@ -5,7 +5,6 @@
 # usare i target bump-patch / bump-minor / bump-major.
 #
 # Target principali:
-#   make build          - Compila il modulo kernel
 #   make deb            - Genera il pacchetto .deb con la versione corrente
 #   make test           - Esegue la test suite locale
 #   make clean          - Rimuove file temporanei
@@ -28,11 +27,8 @@ PACKAGE   := pico-fan
 ARCH      := all
 DEB_FILE  := $(PACKAGE)_$(VERSION)_$(ARCH).deb
 PYTHON    := python3
-KVER      ?= $(shell uname -r)
-KDIR      ?= /lib/modules/$(KVER)/build
-
-.PHONY: all build deb test test-quick test-hw clean install uninstall \
-        dkms dkms-clean version bump-patch bump-minor bump-major tag help
+.PHONY: all deb test test-quick test-hw clean install uninstall \
+        version bump-patch bump-minor bump-major tag help
 
 # ---------------------------------------------------------------------------
 # Default: mostra versione e aiuto
@@ -48,13 +44,7 @@ version:
 	@echo "  Git tag:         $$(git describe --tags --abbrev=0 2>/dev/null || echo 'nessun tag')"
 	@echo "  .deb target:     $(DEB_FILE)"
 
-# ---------------------------------------------------------------------------
-# Build: compila il modulo kernel (richiede linux-headers)
-# ---------------------------------------------------------------------------
-build:
-	@echo ">>> Compilazione modulo kernel pico_fan_hwmon (v$(VERSION)) ..."
-	$(MAKE) -C kernel_module KDIR=$(KDIR) MODULE_VERSION=$(VERSION) modules
-	@echo ">>> Modulo compilato: kernel_module/pico_fan_hwmon.ko"
+
 
 # ---------------------------------------------------------------------------
 # Test
@@ -88,7 +78,6 @@ deb:
 # ---------------------------------------------------------------------------
 clean:
 	@echo ">>> Pulizia ..."
-	-$(MAKE) -C kernel_module clean 2>/dev/null || true
 	@rm -rf build/
 	@rm -f $(PACKAGE)_*.deb
 	@find . -name "*.pyc" -delete
@@ -106,29 +95,7 @@ uninstall:
 	@echo ">>> Rimozione $(PACKAGE) ..."
 	sudo apt remove -y $(PACKAGE) || sudo dpkg -r $(PACKAGE)
 
-# ---------------------------------------------------------------------------
-# DKMS manuale
-# ---------------------------------------------------------------------------
-dkms:
-	@echo ">>> Setup DKMS manuale (v$(VERSION)) ..."
-	sudo install -d /usr/src/$(PACKAGE)-$(VERSION)
-	sudo cp kernel_module/pico_fan_hwmon.c /usr/src/$(PACKAGE)-$(VERSION)/
-	sudo cp kernel_module/Makefile          /usr/src/$(PACKAGE)-$(VERSION)/
-	@# Genera dkms.conf con la versione corretta
-	sudo sh -c "sed 's/@VERSION@/$(VERSION)/g' kernel_module/dkms.conf.in \
-	    > /usr/src/$(PACKAGE)-$(VERSION)/dkms.conf"
-	sudo dkms add     -m $(PACKAGE) -v $(VERSION)
-	sudo dkms build   -m $(PACKAGE) -v $(VERSION)
-	sudo dkms install -m $(PACKAGE) -v $(VERSION)
-	sudo modprobe pico_fan_hwmon
-	@echo ">>> DKMS configurato e modulo caricato."
 
-dkms-clean:
-	@echo ">>> Pulizia DKMS ..."
-	-sudo modprobe -r pico_fan_hwmon 2>/dev/null || true
-	-sudo dkms remove -m $(PACKAGE) -v $(VERSION) --all 2>/dev/null || true
-	-sudo rm -rf /usr/src/$(PACKAGE)-$(VERSION) 2>/dev/null || true
-	@echo ">>> DKMS pulito."
 
 # ---------------------------------------------------------------------------
 # Versioning: bump automatico con aggiornamento file VERSION
@@ -183,13 +150,12 @@ help:
 	echo "  pico-fan-control - Makefile root  (versione: $$VER)"; \
 	echo ""; \
 	echo "  ── Build ──────────────────────────────────────────────"; \
-	echo "    make build         Compila il modulo kernel"; \
 	echo "    make deb           Genera $(PACKAGE)_$$VER_$(ARCH).deb"; \
-	echo "    make install       Build + installazione dpkg (sudo)"; \
+	echo "    make install       Installazione dpkg (sudo)"; \
 	echo "    make uninstall     Rimuove il pacchetto (sudo)"; \
 	echo ""; \
 	echo "  ── Test ───────────────────────────────────────────────"; \
-	echo "    make test          Suite completa (Python + kernel + demone)"; \
+	echo "    make test          Suite completa (Python + demone)"; \
 	echo "    make test-quick    Solo sintassi e logica"; \
 	echo "    make test-hw       Con hardware Pico collegato"; \
 	echo ""; \
@@ -199,10 +165,6 @@ help:
 	echo "    make bump-minor    $$VER → $$($(PYTHON) -c \"v='$$VER'.split('.');v[1]=str(int(v[1])+1);v[2]='0';print('.'.join(v))\" 2>/dev/null || echo 'N/A')"; \
 	echo "    make bump-major    $$VER → $$($(PYTHON) -c \"v='$$VER'.split('.');v[0]=str(int(v[0])+1);v[1]='0';v[2]='0';print('.'.join(v))\" 2>/dev/null || echo 'N/A')"; \
 	echo "    make tag           Crea tag git v$$VER"; \
-	echo ""; \
-	echo "  ── DKMS ───────────────────────────────────────────────"; \
-	echo "    make dkms          Setup DKMS manuale (sudo)"; \
-	echo "    make dkms-clean    Pulizia DKMS completa (sudo)"; \
 	echo ""; \
 	echo "  ── Utility ────────────────────────────────────────────"; \
 	echo "    make clean         Rimuove file temporanei e .deb"; \

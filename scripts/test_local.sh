@@ -5,12 +5,11 @@
 # Utile per sviluppo e CI/CD.
 #
 # Utilizzo:
-#   ./scripts/test_local.sh [--daemon] [--wizard] [--module] [--all]
+#   ./scripts/test_local.sh [--daemon] [--wizard] [--scan] [--all]
 #
 # Opzioni:
 #   --daemon   Esegue il demone in modalità dry-run (nessun Pico richiesto)
 #   --wizard   Esegue il wizard in modalità mock
-#   --module   Verifica la compilabilità del modulo kernel
 #   --scan     Scansiona le porte seriali (richiede Pico collegato)
 #   --all      Esegue tutti i test
 #
@@ -95,58 +94,6 @@ test_config_json() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Test: modulo kernel (compilazione)
-# ---------------------------------------------------------------------------
-test_kernel_module() {
-    header "Verifica modulo kernel"
-
-    local kdir
-    kdir=$(ls -d /lib/modules/*/build 2>/dev/null | head -1 || echo "")
-
-    if [[ -z "$kdir" ]]; then
-        warning "linux-headers non trovati, salto test compilazione modulo"
-        warning "Installare: apt install linux-headers-$(uname -r)"
-        return
-    fi
-
-    info "Compilazione modulo con kernel $(uname -r) ..."
-    if make -C "${REPO_ROOT}/kernel_module" KDIR="$kdir" modules 2>&1 | tail -5; then
-        pass "Modulo kernel compilato con successo"
-        make -C "${REPO_ROOT}/kernel_module" KDIR="$kdir" clean > /dev/null 2>&1 || true
-    else
-        fail "Errore compilazione modulo kernel"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Test: dkms.conf formato
-# ---------------------------------------------------------------------------
-test_dkms_conf() {
-    header "Verifica dkms.conf.in (template)"
-    local conf="${REPO_ROOT}/kernel_module/dkms.conf.in"
-
-    if [[ ! -f "$conf" ]]; then
-        fail "dkms.conf.in mancante"
-        return
-    fi
-
-    # Verifica placeholder @VERSION@
-    if grep -q "@VERSION@" "$conf"; then
-        pass "Placeholder @VERSION@ presente in dkms.conf.in"
-    else
-        fail "Placeholder @VERSION@ mancante in dkms.conf.in"
-    fi
-
-    # Verifica campi obbligatori
-    for field in PACKAGE_NAME PACKAGE_VERSION BUILT_MODULE_NAME DEST_MODULE_LOCATION; do
-        if grep -q "^${field}" "$conf"; then
-            pass "Campo presente: ${field}"
-        else
-            fail "Campo mancante in dkms.conf.in: ${field}"
-        fi
-    done
-}
 
 # ---------------------------------------------------------------------------
 # Test: sistema di versioning
@@ -207,19 +154,7 @@ print(__version__)
         fail "build_deb.sh errore di sintassi"
     fi
 
-    # 6. Simulazione sostituzione @VERSION@ in dkms.conf.in
-    local dkms_in="${REPO_ROOT}/kernel_module/dkms.conf.in"
-    if [[ -f "$dkms_in" ]]; then
-        local generated
-        generated=$(sed "s/@VERSION@/${ver}/g" "$dkms_in")
-        if echo "$generated" | grep -q "PACKAGE_VERSION=\"${ver}\""; then
-            pass "dkms.conf.in: sostituzione @VERSION@ → ${ver} funziona"
-        else
-            fail "dkms.conf.in: sostituzione @VERSION@ fallita"
-        fi
-    else
-        fail "dkms.conf.in mancante"
-    fi
+
 }
 
 # ---------------------------------------------------------------------------
@@ -306,9 +241,6 @@ try:
     assert fan_daemon.compute_target_duty(3000, cfg) == 50,  'duty_mid failed'
     assert fan_daemon.compute_target_duty(1000, cfg) == 0,   'duty_low failed'
     print('  compute_target_duty: OK')
-    # Test find_hwmon_path (può restituire None)
-    result = fan_daemon.find_hwmon_path('pico_fan')
-    print(f'  find_hwmon_path: {result or \"non trovato (modulo non caricato)\"}')
     print('  Moduli demone caricati con successo')
 except ImportError as e:
     print(f'  Import fallito: {e}')
@@ -354,12 +286,11 @@ main() {
         case "$arg" in
             --daemon) run_daemon=true ;;
             --wizard) run_wizard=true ;;
-            --module) run_module=true ;;
             --scan)   run_scan=true   ;;
             --all)    run_all=true    ;;
             *)
                 echo "Argomento non riconosciuto: $arg"
-                echo "Uso: $0 [--daemon] [--wizard] [--module] [--scan] [--all]"
+                echo "Uso: $0 [--daemon] [--wizard] [--scan] [--all]"
                 exit 1
                 ;;
         esac
@@ -370,13 +301,9 @@ main() {
     test_python_imports
     test_config_json
     test_versioning
-    test_dkms_conf
     test_bash_scripts
 
     # Test selettivi
-    if $run_all || $run_module; then
-        test_kernel_module
-    fi
 
     if $run_all || $run_daemon; then
         test_daemon_dryrun

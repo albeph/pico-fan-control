@@ -35,7 +35,6 @@ sys.path.insert(0, str(DAEMON_DIR))
 try:
     from hardware_detector import scan_devices, PicoDevice, probe_pico
     from fan_daemon import (
-        find_hwmon_path,
         read_internal_rpm_ibm,
         read_internal_rpm_hwmon,
     )

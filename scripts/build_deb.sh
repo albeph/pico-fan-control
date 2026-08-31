@@ -113,8 +113,9 @@ check_deps() {
     for cmd in dpkg-deb sed; do
         command -v "$cmd" > /dev/null 2>&1 || missing+=("$cmd")
     done
-    [[ ${#missing[@]} -gt 0 ]] && \
+    if [[ ${#missing[@]} -gt 0 ]]; then
         error "Dipendenze mancanti: ${missing[*]}\nInstallare: apt install dpkg-dev"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -145,19 +146,7 @@ install_files() {
     # Firmware (per riferimento, non eseguito sull'host)
     cp -r "${REPO_ROOT}/firmware" "${DEST_LIB}/"
 
-    # Modulo kernel (sorgenti per DKMS)
-    cp "${REPO_ROOT}/kernel_module/pico_fan_hwmon.c" "${DEST_LIB}/kernel_module/"
-    cp "${REPO_ROOT}/kernel_module/Makefile"          "${DEST_LIB}/kernel_module/"
-
-    # ── dkms.conf: generato dal template con versione sostituita ──────────
-    if [[ -f "${REPO_ROOT}/kernel_module/dkms.conf.in" ]]; then
-        sed "s/@VERSION@/${VERSION}/g" \
-            "${REPO_ROOT}/kernel_module/dkms.conf.in" \
-            > "${DEST_LIB}/kernel_module/dkms.conf"
-        info "  dkms.conf generato con PACKAGE_VERSION=${VERSION}"
-    else
-        error "Template dkms.conf.in non trovato in kernel_module/"
-    fi
+    # Kernel module rimosso come richiesto
 
     # Daemon Python
     cp "${REPO_ROOT}/daemon/fan_daemon.py"        "${DEST_LIB}/daemon/"
@@ -166,6 +155,7 @@ install_files() {
 
     # CLI
     cp "${REPO_ROOT}/cli/setup_wizard.py" "${DEST_LIB}/cli/"
+    cp "${REPO_ROOT}/cli/status.py"       "${DEST_LIB}/cli/"
 
     # File VERSION installato (per runtime version resolution)
     echo "${VERSION}" > "${DEST_LIB}/VERSION"
@@ -195,6 +185,11 @@ EOF
 exec /usr/bin/python3 /usr/lib/pico-fan/cli/setup_wizard.py "$@"
 EOF
 
+    cat > "${DEST_BIN}/pico-fan-status" << 'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/python3 /usr/lib/pico-fan/cli/status.py "$@"
+EOF
+
     # Wrapper informativo sulla versione
     cat > "${DEST_BIN}/pico-fan-version" << VEOF
 #!/usr/bin/env bash
@@ -204,6 +199,7 @@ VEOF
     chmod 755 \
         "${DEST_BIN}/pico-fan-daemon" \
         "${DEST_BIN}/pico-fan-setup" \
+        "${DEST_BIN}/pico-fan-status" \
         "${DEST_BIN}/pico-fan-version"
 }
 
@@ -211,17 +207,16 @@ VEOF
 create_debian_meta() {
     info "Generazione metadata DEBIAN ..."
 
-    # Genera il control con la versione corretta iniettata
-    sed \
-        -e "s/^Version:.*/Version: ${VERSION}/" \
-        "${REPO_ROOT}/debian/control" > "${DEST_DEBIAN}/control"
+    # Genera il control con la versione corretta iniettata, tenendo solo il blocco Package
+    awk '/^Package: /{p=1} p' "${REPO_ROOT}/debian/control" > "${DEST_DEBIAN}/control"
 
-    # Se il campo Version non esisteva, aggiungilo dopo Package:
-    if ! grep -q "^Version:" "${DEST_DEBIAN}/control"; then
+    # Inietta o aggiorna la versione
+    if grep -q "^Version:" "${DEST_DEBIAN}/control"; then
+        sed -i "s/^Version:.*/Version: ${VERSION}/" "${DEST_DEBIAN}/control"
+        info "  Version nel control aggiornato: ${VERSION}"
+    else
         sed -i "s/^Package: .*/&\nVersion: ${VERSION}/" "${DEST_DEBIAN}/control"
         info "  Campo Version aggiunto al control: ${VERSION}"
-    else
-        info "  Version nel control aggiornato: ${VERSION}"
     fi
 
     # Script hook
@@ -281,14 +276,14 @@ build_deb() {
 # Main
 # ===========================================================================
 main() {
+    local ver_source="fallback"
+    [[ -n "$FORCED_VERSION" ]] && ver_source="CLI --version" || \
+    { git -C "${REPO_ROOT}" describe --tags --abbrev=0 &>/dev/null 2>&1 && ver_source="git tag"; } || \
+    { [[ -f "${REPO_ROOT}/VERSION" ]] && ver_source="file VERSION"; } || true
+
     echo ""
     info "=== Build pico-fan v${VERSION} ==="
-    info "    Sorgente versione: $(
-        if [[ -n "$FORCED_VERSION" ]]; then echo "CLI --version"
-        elif git -C "${REPO_ROOT}" describe --tags --abbrev=0 &>/dev/null; then echo "git tag"
-        elif [[ -f "${REPO_ROOT}/VERSION" ]]; then echo "file VERSION"
-        else echo "fallback"; fi
-    )"
+    info "    Sorgente versione: ${ver_source}"
     echo ""
 
     check_deps

@@ -11,9 +11,6 @@ Curva di funzionamento:
   2500 <= RPM <= 4000 -> Ventola esterna a 50%  (SET 50)
   RPM < 2500          -> Ventola esterna a 0%   (SET 0)
 
-Il demone aggiorna anche gli attributi sysfs del modulo hwmon per
-rendere i dati visibili con il comando "sensors".
-
 Autore:   pico-fan-control project
 Versione: 1.0.0
 """
@@ -22,9 +19,9 @@ from __future__ import annotations
 
 import os
 import sys
-import glob
 import json
 import time
+import socket
 import signal
 import logging
 import logging.handlers
@@ -176,7 +173,7 @@ class FanDaemon:
         self._lock           = threading.Lock()
 
     # -------------------------------------------------------------------
-    # Setup IPC e inziale
+    # Setup iniziale e IPC
     # -------------------------------------------------------------------
 
     def _start_ipc_server(self) -> None:
@@ -188,7 +185,6 @@ class FanDaemon:
                 pass
         
         try:
-            import socket
             self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.server_sock.bind(self.sock_path)
             self.server_sock.listen(5)
@@ -202,14 +198,16 @@ class FanDaemon:
                 try:
                     self.server_sock.settimeout(1.0)
                     conn, _ = self.server_sock.accept()
-                    state = {
-                        "connected": self.serial_conn is not None,
-                        "pico_port": self.pico_port,
-                        "internal_rpm": self.internal_rpm,
-                        "pico_rpm": self.pico_rpm,
-                        "current_duty": self.current_duty if self.current_duty >= 0 else 0,
-                        "version": __version__
-                    }
+                    # Legge lo stato condiviso con lock per evitare race conditions
+                    with self._lock:
+                        state = {
+                            "connected": self.serial_conn is not None,
+                            "pico_port": self.pico_port,
+                            "internal_rpm": self.internal_rpm,
+                            "pico_rpm": self.pico_rpm,
+                            "current_duty": self.current_duty if self.current_duty >= 0 else 0,
+                            "version": __version__
+                        }
                     conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
                     conn.close()
                 except socket.timeout:
@@ -346,7 +344,6 @@ class FanDaemon:
         3. Calcolo duty target
         4. Invio comando solo al cambio soglia
         5. Lettura RPM ventola esterna
-        6. Aggiornamento hwmon sysfs
         """
         poll_interval      = self.config.get("poll_interval",      DEFAULT_CONFIG["poll_interval"])
         reconnect_interval = self.config.get("reconnect_interval", DEFAULT_CONFIG["reconnect_interval"])

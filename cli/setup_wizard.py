@@ -20,9 +20,7 @@ import os
 import sys
 import json
 import time
-import glob
 import shutil
-import textwrap
 import signal
 from pathlib import Path
 from typing import Optional
@@ -74,7 +72,12 @@ class C:
 
 
 def _supports_color() -> bool:
-    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return False
+    term = os.environ.get("TERM", "")
+    if term == "dumb":
+        return False
+    return True
 
 
 def cprint(text: str, color: str = C.RESET, bold: bool = False) -> None:
@@ -109,7 +112,12 @@ def ask(prompt: str, default: str = "") -> str:
         full_prompt = f"{prompt} [{default}]: "
     else:
         full_prompt = f"{prompt}: "
-    cprint(full_prompt, C.WHITE, bold=True)
+    # Usa print semplice per evitare escape ANSI nell'input interattivo
+    if _supports_color():
+        sys.stdout.write(f"{C.BOLD}{C.WHITE}{full_prompt}{C.RESET}")
+    else:
+        sys.stdout.write(full_prompt)
+    sys.stdout.flush()
     try:
         answer = input().strip()
     except (EOFError, KeyboardInterrupt):
@@ -213,24 +221,35 @@ def step_test_fan(device: PicoDevice) -> bool:
     ]
 
     try:
-        with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=2.0) as ser:
-            time.sleep(0.5)
+        with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
+            # Aspetta che il Pico sia pronto (reset CDC) e svuota il banner di avvio
+            time.sleep(1.0)
             ser.reset_input_buffer()
 
             for duty, desc in test_sequences:
                 cprint(f"\n  → Imposto {desc} ...", C.CYAN)
+
+                # Svuota buffer prima di inviare il comando
+                ser.reset_input_buffer()
                 ser.write(f"SET {duty}\n".encode())
                 ser.flush()
+
+                # Aspetta la risposta con un piccolo ritardo per dare tempo al firmware
+                time.sleep(0.3)
                 resp = ser.readline().decode("ascii", errors="replace").strip()
+
                 if resp == "OK":
-                    cprint(f"    OK - risposta: {resp}", C.GREEN)
+                    cprint(f"    ✓ Risposta: {resp}", C.GREEN)
                 else:
                     cprint(f"    Risposta inattesa: '{resp}'", C.YELLOW)
+
                 time.sleep(2.0)
 
                 # Leggi RPM
+                ser.reset_input_buffer()
                 ser.write(b"RPM\n")
                 ser.flush()
+                time.sleep(0.3)
                 rpm_resp = ser.readline().decode("ascii", errors="replace").strip()
                 cprint(f"    Stato: {rpm_resp}", C.DIM)
 
@@ -274,7 +293,7 @@ def _discover_internal_fans() -> list[dict]:
                 hw_name = hwmon_dir.name
 
             if hw_name == "pico_fan":
-                continue    # Salta il nostro
+                continue    # Salta il nostro vecchio modulo se ancora presente
 
             for fan_file in sorted(hwmon_dir.glob("fan*_input")):
                 try:
@@ -389,7 +408,6 @@ def step_save_config(
         "hwmon_fan_path":     fan_config.get("path", "")
                               if fan_config.get("type") == "hwmon"
                               else "",
-        "hwmon_path":         "",    # Auto-rilevato dal demone
         "poll_interval":      2.0,
         "reconnect_interval": 5.0,
         **thresholds,
@@ -488,10 +506,9 @@ def main() -> None:
         cprint(
             "✓ Setup completato con successo!\n\n"
             "  Prossimi passi:\n"
-            "  1. Caricare il modulo kernel:  sudo modprobe pico_fan_hwmon\n"
-            "  2. Avviare il demone:          sudo systemctl start pico-fan\n"
-            "  3. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
-            "  4. Verificare con:             sensors\n",
+            "  1. Avviare il demone:          sudo systemctl start pico-fan\n"
+            "  2. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
+            "  3. Verificare lo stato:        pico-fan-status\n",
             C.GREEN,
             bold=True,
         )

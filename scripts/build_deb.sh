@@ -253,6 +253,7 @@ set_permissions() {
     chmod 755 \
         "${DEST_BIN}/pico-fan-daemon" \
         "${DEST_BIN}/pico-fan-setup" \
+        "${DEST_BIN}/pico-fan-status" \
         "${DEST_BIN}/pico-fan-version"
     for s in postinst prerm postrm; do
         [[ -f "${DEST_DEBIAN}/${s}" ]] && chmod 755 "${DEST_DEBIAN}/${s}"

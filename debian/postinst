@@ -3,19 +3,13 @@
 # =====================================================
 # Eseguito automaticamente da dpkg dopo l'installazione del pacchetto.
 # Si occupa di:
-#   1. Copiare i sorgenti del modulo kernel in /usr/src/
-#   2. Registrare il modulo in DKMS
-#   3. Compilare il modulo per il kernel corrente
-#   4. Caricare il modulo kernel
-#   5. Abilitare e avviare il servizio systemd
-#   6. Installare le regole udev
+#   1. Abilitare il servizio systemd
+#   2. Ricaricare le regole udev
+#   3. Creare la directory di configurazione
 
 set -e
 
 PACKAGE_NAME="pico-fan"
-MODULE_NAME="pico_fan_hwmon"
-MODULE_VERSION="1.0.0"
-DKMS_SRC="/usr/src/${PACKAGE_NAME}-${MODULE_VERSION}"
 INSTALL_LIB="/usr/lib/pico-fan"
 CONFIG_DIR="/etc/pico-fan"
 

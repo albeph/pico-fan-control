@@ -440,7 +440,7 @@ def load_config(path: str = CONFIG_PATH) -> dict:
 # ===========================================================================
 
 def setup_logging() -> None:
-    """Configura logging verso journald/syslog e console."""
+    """Configura logging verso stdout (catturato automaticamente da systemd/journald)."""
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
         level=logging.INFO,
@@ -449,13 +449,6 @@ def setup_logging() -> None:
             logging.StreamHandler(sys.stdout),
         ],
     )
-    # Aggiunge handler syslog se disponibile
-    try:
-        syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
-        syslog_handler.setFormatter(logging.Formatter(fmt))
-        logging.getLogger().addHandler(syslog_handler)
-    except (OSError, ConnectionRefusedError):
-        pass
 
 
 def main() -> None:

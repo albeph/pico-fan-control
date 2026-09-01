@@ -176,22 +176,12 @@ install_files() {
 create_wrappers() {
     info "Creazione wrapper eseguibili ..."
 
-    # Wrapper principale unificato
     cat > "${DEST_BIN}/pico-fan" << 'EOF'
 #!/usr/bin/env bash
 exec /usr/bin/python3 /usr/lib/pico-fan/cli/main.py "$@"
 EOF
 
     chmod 755 "${DEST_BIN}/pico-fan"
-
-    # Symlink retrocompatibili per i vecchi nomi (pico-fan-daemon, ecc.)
-    for sub in daemon setup status version; do
-        cat > "${DEST_BIN}/pico-fan-${sub}" << EOF
-#!/usr/bin/env bash
-exec /usr/bin/pico-fan ${sub} "\$@"
-EOF
-        chmod 755 "${DEST_BIN}/pico-fan-${sub}"
-    done
 }
 
 # ---------------------------------------------------------------------------
@@ -241,12 +231,7 @@ set_permissions() {
     find "${PKG_DIR}" -type d -exec chmod 755 {} \;
     find "${PKG_DIR}/usr" -type f -exec chmod 644 {} \;
     find "${PKG_DIR}/lib" -type f -exec chmod 644 {} \;
-    chmod 755 \
-        "${DEST_BIN}/pico-fan" \
-        "${DEST_BIN}/pico-fan-daemon" \
-        "${DEST_BIN}/pico-fan-setup" \
-        "${DEST_BIN}/pico-fan-status" \
-        "${DEST_BIN}/pico-fan-version"
+    chmod 755 "${DEST_BIN}/pico-fan"
     for s in postinst prerm postrm; do
         [[ -f "${DEST_DEBIAN}/${s}" ]] && chmod 755 "${DEST_DEBIAN}/${s}"
     done

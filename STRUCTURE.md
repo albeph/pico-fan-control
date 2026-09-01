@@ -20,7 +20,7 @@ pico-fan-control/
 │
 ├── daemon/                   # Servizio backend in ascolto sul sistema Host
 │   ├── fan_daemon.py         # Demone principale (loop RPM, soglie hysteresis, server IPC)
-│   ├── hardware_detector.py # Scansione e probe dispositivi RP2040 in /dev/serial/by-id/
+│   ├── hardware_detector.py  # Scansione e probe dispositivi RP2040 in /dev/serial/by-id/
 │   └── version.py            # Utility per la risoluzione dinamica della versione runtime
 │
 ├── cli/                      # Strumenti di interfaccia a riga di comando (User Tools)

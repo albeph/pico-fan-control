@@ -1,9 +1,9 @@
 # pico-fan-control
 
-> **Controllo ventola USB via Raspberry Pi Pico con integrazione hwmon Linux**
+> **Controllo ventola USB via Raspberry Pi Pico / RP2040 (Userspace IPC Daemon)**
 
 [![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)](https://github.com)
-[![Kernel](https://img.shields.io/badge/Kernel-5.x%20%7C%206.x-blue?logo=linux)](https://github.com)
+[![Kernel](https://img.shields.io/badge/Kernel-5.x%20%7C%206.x%20%7C%207.x-blue?logo=linux)](https://github.com)
 [![MicroPython](https://img.shields.io/badge/MicroPython-RP2040-green?logo=micropython)](https://github.com)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 
@@ -18,11 +18,11 @@
 | Feature | Dettaglio |
 |---|---|
 | **Firmware** | MicroPython su RP2040, PWM 25 kHz, tachimetro IRQ |
-| **Driver kernel** | Modulo HWMON virtuale, visibile con `sensors` |
-| **Demone** | Fault-tolerant, riconnessione USB automatica |
-| **Packaging** | Pacchetto `.deb` nativo con DKMS |
-| **Setup** | Wizard CLI interattivo guidato |
-| **Integrazione** | systemd, udev, lm-sensors |
+| **Architettura** | Userspace IPC Unix Socket (`/run/pico-fan.sock`), zero kernel-headers |
+| **Demone** | Fault-tolerant, riconnessione USB automatica, CPU < 0.1% |
+| **Packaging** | Pacchetto `.deb` nativo per Debian / Ubuntu / Proxmox |
+| **Setup & Status** | Wizard CLI `pico-fan-setup` e diagnostica `pico-fan-status` |
+| **Integrazione** | systemd, udev, journald |
 
 ---
 
@@ -33,22 +33,21 @@
                     │            HOST LINUX                    │
                     │                                          │
   ┌──────────┐      │  ┌─────────────┐    ┌────────────────┐  │
-  │ Ventola  │      │  │ fan_daemon  │───▶│ pico_fan_hwmon │  │
-  │ interna  │─────▶│  │   .py       │    │ (kernel module)│  │
-  │ (hwmon / │ RPM  │  │             │    │                │  │
-  │  ACPI)   │      │  │             │    │  /sys/class/   │  │
-  └──────────┘      │  │             │    │  hwmon/hwmonX/ │  │
-                    │  │             │    │  ├ fan1_input   │  │
-  ┌──────────┐      │  │             │    │  ├ pwm1        │  │
-  │ Pico     │◀─────│  │  SET <duty> │    │  └ name        │  │
-  │ RP2040   │ USB  │  │  RPM query  │    └────────────────┘  │
-  │          │─────▶│  │             │           │             │
-  └──────────┘ RPM  │  └─────────────┘           │             │
-       │            │                      ┌──────▼──────┐     │
-       │ PWM        │                      │   sensors   │     │
-       ▼            │                      │  (lm-sensors│     │
-  ┌──────────┐      │                      └─────────────┘     │
-  │ Ventola  │      └──────────────────────────────────────────┘
+  │ Ventola  │      │  │ fan_daemon  │───▶│ Socket IPC     │  │
+  │ interna  │─────▶│  │   .py       │    │ UNIX (/run/    │  │
+  │ (hwmon / │ RPM  │  │             │    │ pico-fan.sock) │  │
+  │  ACPI)   │      │  │  SET <duty> │    └───────┬────────┘  │
+  └──────────┘      │  │  RPM query  │            │           │
+                    │  │             │            ▼           │
+  ┌──────────┐      │  └─────────────┘    ┌────────────────┐  │
+  │ Pico     │◀─────│         │           │pico-fan-status │  │
+  │ RP2040   │ USB  │         ▼           │ (CLI client)   │  │
+  └──────────┘ RPM  │  ┌─────────────┐    └────────────────┘  │
+       │            │  │  journald   │                        │
+       │ PWM        │  └─────────────┘                        │
+       ▼            │                                         │
+  ┌──────────┐      └──────────────────────────────────────────┘
+  │ Ventola  │
   │ esterna  │
   │ 4-pin    │
   └──────────┘
@@ -58,21 +57,26 @@
 
 ## Struttura del repository
 
+> ℹ️ Per la mappa dettagliata e spiegazione di ogni singolo file, consulta [STRUCTURE.md](file:///home/user/Projects/pico-fan-control/STRUCTURE.md).
+
 ```
 pico-fan-control/
+├── VERSION                   # Versione del pacchetto (es. 1.0.6)
+├── Makefile                  # Build, test e packaging
+├── README.md                 # Guida rapida e panoramica
+├── STRUCTURE.md              # Descrizione dettagliata dell'albero delle directory
+├── RELAZIONE_PROGETTO.md     # Report completo di sviluppo e cronologia dei round
 ├── firmware/
-│   └── main.py                 # Firmware MicroPython RP2040
-├── kernel_module/
-│   ├── pico_fan_hwmon.c        # Driver Linux HWMON virtuale
-│   ├── Makefile                # Compilazione + DKMS
-│   └── dkms.conf               # Auto-compilazione con DKMS
+│   └── main.py               # Firmware MicroPython RP2040
 ├── daemon/
-│   ├── fan_daemon.py           # Demone sincronizzazione RPM
-│   └── hardware_detector.py   # Scanner porte seriali Pico
+│   ├── fan_daemon.py         # Demone sincronizzazione RPM e IPC server
+│   ├── hardware_detector.py # Scanner porte seriali Pico
+│   └── version.py            # Risoluzione versione runtime
 ├── cli/
-│   └── setup_wizard.py        # Wizard CLI interattivo
+│   ├── setup_wizard.py       # Wizard CLI (pico-fan-setup)
+│   └── status.py             # Diagnostica CLI (pico-fan-status)
 ├── systemd/
-│   └── pico-fan.service        # Unit systemd
+│   └── pico-fan.service      # Unit systemd
 ├── udev/
 │   └── 99-pico-fan.rules       # Permessi seriale + symlink
 ├── debian/

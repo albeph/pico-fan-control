@@ -13,7 +13,7 @@ User=root
 Group=root
 
 # Percorso dello script demone installato
-ExecStart=/usr/bin/pico-fan-daemon
+ExecStart=/usr/bin/pico-fan daemon
 
 # Percorso wizard (per comodità)
 ExecStartPre=/bin/bash -c '[ -f /etc/pico-fan/config.json ] || echo "WARN: /etc/pico-fan/config.json mancante, eseguire: pico-fan-setup"'

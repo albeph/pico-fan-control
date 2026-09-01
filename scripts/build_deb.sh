@@ -156,6 +156,7 @@ install_files() {
     # CLI
     cp "${REPO_ROOT}/cli/setup_wizard.py" "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/status.py"       "${DEST_LIB}/cli/"
+    cp "${REPO_ROOT}/cli/main.py"         "${DEST_LIB}/cli/"
 
     # File VERSION installato (per runtime version resolution)
     echo "${VERSION}" > "${DEST_LIB}/VERSION"
@@ -175,32 +176,22 @@ install_files() {
 create_wrappers() {
     info "Creazione wrapper eseguibili ..."
 
-    cat > "${DEST_BIN}/pico-fan-daemon" << 'EOF'
+    # Wrapper principale unificato
+    cat > "${DEST_BIN}/pico-fan" << 'EOF'
 #!/usr/bin/env bash
-exec /usr/bin/python3 /usr/lib/pico-fan/daemon/fan_daemon.py "$@"
+exec /usr/bin/python3 /usr/lib/pico-fan/cli/main.py "$@"
 EOF
 
-    cat > "${DEST_BIN}/pico-fan-setup" << 'EOF'
+    chmod 755 "${DEST_BIN}/pico-fan"
+
+    # Symlink retrocompatibili per i vecchi nomi (pico-fan-daemon, ecc.)
+    for sub in daemon setup status version; do
+        cat > "${DEST_BIN}/pico-fan-${sub}" << EOF
 #!/usr/bin/env bash
-exec /usr/bin/python3 /usr/lib/pico-fan/cli/setup_wizard.py "$@"
+exec /usr/bin/pico-fan ${sub} "\$@"
 EOF
-
-    cat > "${DEST_BIN}/pico-fan-status" << 'EOF'
-#!/usr/bin/env bash
-exec /usr/bin/python3 /usr/lib/pico-fan/cli/status.py "$@"
-EOF
-
-    # Wrapper informativo sulla versione
-    cat > "${DEST_BIN}/pico-fan-version" << VEOF
-#!/usr/bin/env bash
-cat /usr/lib/pico-fan/VERSION
-VEOF
-
-    chmod 755 \
-        "${DEST_BIN}/pico-fan-daemon" \
-        "${DEST_BIN}/pico-fan-setup" \
-        "${DEST_BIN}/pico-fan-status" \
-        "${DEST_BIN}/pico-fan-version"
+        chmod 755 "${DEST_BIN}/pico-fan-${sub}"
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -251,6 +242,7 @@ set_permissions() {
     find "${PKG_DIR}/usr" -type f -exec chmod 644 {} \;
     find "${PKG_DIR}/lib" -type f -exec chmod 644 {} \;
     chmod 755 \
+        "${DEST_BIN}/pico-fan" \
         "${DEST_BIN}/pico-fan-daemon" \
         "${DEST_BIN}/pico-fan-setup" \
         "${DEST_BIN}/pico-fan-status" \

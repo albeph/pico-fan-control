@@ -36,12 +36,11 @@ systemd_setup() {
         info "Ricarica configurazione systemd ..."
         systemctl daemon-reload
 
-        info "Abilitazione servizio pico-fan ..."
-        systemctl enable pico-fan.service 2>/dev/null || \
-            warning "Impossibile abilitare il servizio systemd"
+        info "Abilitazione e avvio servizio pico-fan ..."
+        systemctl enable --now pico-fan.service 2>/dev/null || \
+            warning "Impossibile abilitare/avviare il servizio systemd"
 
-        # Non avviamo subito: richiede configurazione (pico-fan-setup)
-        info "Servizio abilitato. Avviare con: systemctl start pico-fan"
+        info "Servizio abilitato e avviato."
     else
         warning "systemd non disponibile."
     fi

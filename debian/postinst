@@ -87,13 +87,18 @@ case "$1" in
         udev_setup
 
         echo ""
-        info "=== Installazione completata! ==="
-        echo ""
-        echo "  Prossimi passi:"
-        echo "  1. Collegare il Raspberry Pi Pico via USB"
-        echo "  2. Eseguire il wizard: sudo pico-fan-setup"
-        echo "  3. Avviare il demone: sudo systemctl start pico-fan"
-        echo "  4. Verificare stato: pico-fan-status"
+        # $2 è la versione precedente in caso di upgrade, vuoto alla prima installazione
+        if [ -z "$2" ]; then
+            info "=== Installazione completata! ==="
+            echo ""
+            echo "  Prossimi passi:"
+            echo "  1. Collegare il Raspberry Pi Pico via USB"
+            echo "  2. Eseguire il wizard: sudo pico-fan setup"
+            echo "  3. Riavviare il demone: sudo systemctl restart pico-fan"
+            echo "  4. Verificare stato: pico-fan status"
+        else
+            info "=== Aggiornamento completato! (${2} → $(cat /usr/lib/pico-fan/VERSION 2>/dev/null || echo '?')) ==="
+        fi
         echo ""
         ;;
 

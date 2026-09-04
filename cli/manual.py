@@ -1,269 +1,167 @@
 #!/usr/bin/env python3
 """
-manual.py - Impostazione manuale velocità ventola e monitoraggio RPM
-===================================================================
-
-Imposta la velocità della ventola a una percentuale fissa (0-100%)
-e mostra gli RPM in tempo reale finché l'utente non preme Ctrl+C.
-All'uscita, ripristina automaticamente il controllo automatico del demone.
+pico-fan manual <percentuale>
+==============================
+Imposta manualmente la velocità della ventola esterna a una percentuale fissa,
+mostrando gli RPM in tempo reale fino a Ctrl+C.
+Il controllo automatico del demone viene sospeso per tutta la durata e
+ripristinato automaticamente all'uscita.
 """
 
 from __future__ import annotations
 
-import os
-import sys
 import json
-import time
-import socket
-import select
 import signal
-from pathlib import Path
-from typing import Optional
+import socket
+import sys
+import time
 
-# Path di libreria
-SCRIPT_DIR = Path(__file__).parent.resolve()
-DAEMON_DIR = SCRIPT_DIR.parent / "daemon"
-sys.path.insert(0, str(DAEMON_DIR))
+SOCK_PATH   = "/run/pico-fan.sock"
+REFRESH_SEC = 1.0   # Intervallo di aggiornamento RPM
 
-SOCK_PATH = "/run/pico-fan.sock"
-
-# Colori terminale
-class Col:
-    GREEN  = "\033[92m"
-    YELLOW = "\033[93m"
-    RED    = "\033[91m"
-    CYAN   = "\033[96m"
-    BOLD   = "\033[1m"
-    DIM    = "\033[2m"
-    RESET  = "\033[0m"
-
-
-def _disable_colors():
-    Col.GREEN = Col.YELLOW = Col.RED = Col.CYAN = Col.BOLD = Col.DIM = Col.RESET = ""
+# ---------------------------------------------------------------------------
+# Colori ANSI
+# ---------------------------------------------------------------------------
+_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+RESET  = "\033[0m"  if _COLOR else ""
+BOLD   = "\033[1m"  if _COLOR else ""
+CYAN   = "\033[96m" if _COLOR else ""
+GREEN  = "\033[92m" if _COLOR else ""
+YELLOW = "\033[93m" if _COLOR else ""
+RED    = "\033[91m" if _COLOR else ""
+DIM    = "\033[2m"  if _COLOR else ""
 
 
-def _parse_duty_arg() -> int:
-    """Valida e restituisce il duty cycle dagli argomenti CLI."""
-    # sys.argv può essere:
-    # ['pico-fan set', '75'] oppure ['manual.py', '75']
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+# ---------------------------------------------------------------------------
+# IPC helpers
+# ---------------------------------------------------------------------------
 
-    if not args:
-        print(f"{Col.BOLD}{Col.YELLOW}Uso:{Col.RESET} pico-fan set <percentuale 0-100>")
-        print(f"     pico-fan manual <percentuale 0-100>")
-        print(f"\n{Col.BOLD}Esempio:{Col.RESET} pico-fan set 75")
-        print("Imposta la ventola al 75% e mostra gli RPM finché non premi Ctrl+C.")
-        sys.exit(1)
-
+def _ipc(command: str, timeout: float = 3.0) -> str | None:
+    """Invia un comando al socket IPC del demone, restituisce la risposta grezza."""
     try:
-        val = int(args[0])
-    except ValueError:
-        print(f"{Col.BOLD}{Col.RED}Errore:{Col.RESET} '{args[0]}' non è un numero valido.")
-        print("Specificare un valore intero compreso tra 0 e 100 (es. pico-fan set 50).")
-        sys.exit(1)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect(SOCK_PATH)
+            if command:
+                s.sendall((command + "\n").encode("utf-8"))
+            return s.recv(4096).decode("utf-8", errors="replace").strip()
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
 
-    if not (0 <= val <= 100):
-        print(f"{Col.BOLD}{Col.RED}Errore:{Col.RESET} La percentuale deve essere compresa tra 0 e 100.")
-        sys.exit(1)
 
-    return val
+def _send_set(duty: int) -> bool:
+    resp = _ipc(f"SET {duty}")
+    return resp == "OK"
 
 
-def _run_manual_via_daemon(duty: int) -> bool:
-    """
-    Invia il comando manuale al demone tramite socket IPC e monitora gli RPM.
-    Ritorna True se eseguito con successo, False se il socket non è disponibile.
-    """
-    if not os.path.exists(SOCK_PATH):
-        return False
+def _send_resume() -> None:
+    _ipc("RESUME")
 
+
+def _get_status() -> dict | None:
+    raw = _ipc("")   # nessun comando → STATUS
+    if not raw:
+        return None
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(2.0)
-        sock.connect(SOCK_PATH)
-    except (socket.error, OSError):
-        return False
-
-    stop_requested = False
-
-    def _sig_handler(sig, frame):  # noqa: ARG001
-        nonlocal stop_requested
-        stop_requested = True
-
-    prev_int = signal.signal(signal.SIGINT, _sig_handler)
-    prev_term = signal.signal(signal.SIGTERM, _sig_handler)
-
-    try:
-        # Invia comando di impostazione manuale
-        req = json.dumps({"cmd": "manual", "duty": duty}) + "\n"
-        sock.sendall(req.encode("utf-8"))
-
-        # Ricevi ACK
-        ack_raw = sock.recv(1024)
-        if not ack_raw:
-            return False
-
-        is_tty = sys.stdout.isatty()
-
-        print(f"\n{Col.BOLD}{Col.CYAN}=== pico-fan-control - Controllo Manuale ({duty}%) ==={Col.RESET}")
-        print(f"{Col.DIM}Premi CTRL+C in qualsiasi momento per ripristinare la modalità automatica.{Col.RESET}\n")
-
-        sock.settimeout(1.5)
-
-        # Loop di monitoraggio
-        while not stop_requested:
-            try:
-                rlist, _, _ = select.select([sock], [], [], 1.0)
-                if not rlist:
-                    continue
-
-                chunk = sock.recv(2048)
-                if not chunk:
-                    # Connessione chiusa dal server
-                    break
-
-                lines = chunk.decode("utf-8", errors="replace").strip().split("\n")
-                last_line = lines[-1]
-                if not last_line:
-                    continue
-
-                state = json.loads(last_line)
-                pico_rpm = state.get("pico_rpm", 0)
-                int_rpm  = state.get("internal_rpm", 0)
-                cur_duty = state.get("current_duty", duty)
-
-                if is_tty:
-                    sys.stdout.write(
-                        f"\r  {Col.BOLD}Ventola Pico:{Col.RESET} {Col.GREEN}{pico_rpm:>4} RPM{Col.RESET} [{cur_duty:>3}%]  "
-                        f"|  {Col.BOLD}Ventola Interna:{Col.RESET} {Col.YELLOW}{int_rpm:>4} RPM{Col.RESET}   "
-                        f"{Col.DIM}(CTRL+C per uscire){Col.RESET}   "
-                    )
-                    sys.stdout.flush()
-                else:
-                    print(f"Pico: {pico_rpm} RPM [{cur_duty}%] | Interna: {int_rpm} RPM")
-
-            except (socket.timeout, json.JSONDecodeError):
-                continue
-            except (socket.error, OSError):
-                break
-
-    finally:
-        # Ripristino segnali
-        signal.signal(signal.SIGINT, prev_int)
-        signal.signal(signal.SIGTERM, prev_term)
-
-        print("\n\nRipristino modalità automatica in corso...")
-        try:
-            sock.sendall(b'{"cmd": "auto"}\n')
-            time.sleep(0.2)
-            sock.close()
-        except Exception:
-            pass
-
-        print(f"{Col.BOLD}{Col.GREEN}✓ Modalità automatica ripristinata con successo.{Col.RESET}\n")
-
-    return True
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
 
 
-def _run_manual_direct_serial(duty: int) -> None:
-    """
-    Fallback: se il demone non è attivo, controlla il Pico direttamente su seriale.
-    """
-    try:
-        import serial
-        from hardware_detector import scan_devices
-    except ImportError as e:
-        print(f"{Col.BOLD}{Col.RED}ERRORE:{Col.RESET} Modulo seriale non disponibile: {e}")
-        sys.exit(1)
-
-    devices = scan_devices(probe=False)
-    if not devices:
-        print(f"{Col.BOLD}{Col.RED}ERRORE:{Col.RESET} Demone pico-fan non attivo e nessun dispositivo Pico trovato.")
-        print("Avviare il demone con: sudo systemctl start pico-fan")
-        sys.exit(1)
-
-    device = devices[0]
-    print(f"{Col.YELLOW}Avviso:{Col.RESET} Demone non attivo. Connessione seriale diretta su {device.real_path}...")
-
-    try:
-        ser = serial.Serial(device.real_path, baudrate=115200, timeout=1.0)
-        time.sleep(0.5)
-        ser.reset_input_buffer()
-        ser.write(f"SET {duty}\n".encode("ascii"))
-        ser.flush()
-    except Exception as exc:
-        print(f"{Col.BOLD}{Col.RED}ERRORE:{Col.RESET} Impossibile aprire la porta seriale: {exc}")
-        sys.exit(1)
-
-    stop_requested = False
-
-    def _sig_handler(sig, frame):  # noqa: ARG001
-        nonlocal stop_requested
-        stop_requested = True
-
-    prev_int = signal.signal(signal.SIGINT, _sig_handler)
-    prev_term = signal.signal(signal.SIGTERM, _sig_handler)
-
-    is_tty = sys.stdout.isatty()
-    print(f"\n{Col.BOLD}{Col.CYAN}=== Controllo Diretto Seriale ({duty}%) ==={Col.RESET}")
-    print(f"{Col.DIM}Premi CTRL+C per uscire e fermare la ventola.{Col.RESET}\n")
-
-    try:
-        while not stop_requested:
-            try:
-                ser.reset_input_buffer()
-                ser.write(b"RPM\n")
-                ser.flush()
-                resp = ""
-                for _ in range(5):
-                    line = ser.readline().decode("ascii", errors="replace").strip()
-                    if line:
-                        resp = line
-                        break
-
-                pico_rpm = 0
-                if "RPM:" in resp:
-                    for part in resp.split():
-                        if part.startswith("RPM:"):
-                            pico_rpm = int(part[4:])
-
-                if is_tty:
-                    sys.stdout.write(
-                        f"\r  {Col.BOLD}Ventola Pico:{Col.RESET} {Col.GREEN}{pico_rpm:>4} RPM{Col.RESET} [{duty:>3}%]   "
-                        f"{Col.DIM}(CTRL+C per uscire){Col.RESET}   "
-                    )
-                    sys.stdout.flush()
-                else:
-                    print(f"Pico: {pico_rpm} RPM [{duty}%]")
-
-                time.sleep(1.0)
-            except Exception:
-                time.sleep(1.0)
-
-    finally:
-        signal.signal(signal.SIGINT, prev_int)
-        signal.signal(signal.SIGTERM, prev_term)
-        print("\n\nChiusura connessione...")
-        try:
-            ser.write(b"SET 0\n")
-            ser.flush()
-            ser.close()
-        except Exception:
-            pass
-        print(f"{Col.BOLD}{Col.GREEN}✓ Ventola arrestata e connessione chiusa.{Col.RESET}\n")
-
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
-    if not sys.stdout.isatty():
-        _disable_colors()
+    # -----------------------------------------------------------------------
+    # Parsing argomento
+    # -----------------------------------------------------------------------
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(
+            f"{BOLD}Uso:{RESET}  pico-fan manual <percentuale>\n"
+            f"\n"
+            f"Imposta la ventola esterna a una velocità fissa (0-100%) e\n"
+            f"mostra gli RPM in tempo reale. Premi {BOLD}Ctrl+C{RESET} per\n"
+            f"ripristinare il controllo automatico.\n"
+            f"\n"
+            f"{BOLD}Esempi:{RESET}\n"
+            f"  pico-fan manual 75    # ventola al 75%\n"
+            f"  pico-fan manual 0     # ventola spenta\n"
+            f"  pico-fan manual 100   # ventola al massimo\n"
+        )
+        sys.exit(0)
 
-    duty = _parse_duty_arg()
+    try:
+        duty = int(sys.argv[1])
+        if not 0 <= duty <= 100:
+            raise ValueError
+    except ValueError:
+        print(f"{RED}Errore:{RESET} percentuale non valida '{sys.argv[1]}' (deve essere 0-100).")
+        sys.exit(1)
 
-    # Tenta prima tramite il demone in esecuzione (IPC)
-    ok = _run_manual_via_daemon(duty)
-    if not ok:
-        # Fallback a controllo seriale diretto
-        _run_manual_direct_serial(duty)
+    # -----------------------------------------------------------------------
+    # Controlla che il demone sia in ascolto
+    # -----------------------------------------------------------------------
+    state = _get_status()
+    if state is None:
+        print(
+            f"{RED}Errore:{RESET} socket {SOCK_PATH} non trovato.\n"
+            f"Il demone è in esecuzione? Controlla con: {BOLD}systemctl status pico-fan{RESET}"
+        )
+        sys.exit(1)
+
+    # -----------------------------------------------------------------------
+    # Attiva la modalità manuale
+    # -----------------------------------------------------------------------
+    if not _send_set(duty):
+        print(f"{RED}Errore:{RESET} impossibile impostare il duty cycle. Il demone ha risposto in modo inatteso.")
+        sys.exit(1)
+
+    # -----------------------------------------------------------------------
+    # Handler Ctrl+C / SIGTERM → ripristina controllo automatico
+    # -----------------------------------------------------------------------
+    def _cleanup(sig=None, frame=None) -> None:
+        # Vai a capo dopo la riga \r in corso
+        print()
+        print(f"\n{YELLOW}Ripristino controllo automatico...{RESET}")
+        _send_resume()
+        print(f"{GREEN}✓ Controllo automatico ripristinato.{RESET}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT,  _cleanup)
+    signal.signal(signal.SIGTERM, _cleanup)
+
+    # -----------------------------------------------------------------------
+    # Header
+    # -----------------------------------------------------------------------
+    print(
+        f"\n{BOLD}{CYAN}Modalità manuale{RESET} — ventola al {BOLD}{duty}%{RESET}\n"
+        f"{DIM}Premi Ctrl+C per ripristinare il controllo automatico.{RESET}\n"
+    )
+    print(f"  {'RPM esterna':>12}   {'RPM interna':>12}   {'Duty':>6}")
+    print(f"  {'─' * 12}   {'─' * 12}   {'─' * 6}")
+
+    # -----------------------------------------------------------------------
+    # Loop di monitoraggio
+    # -----------------------------------------------------------------------
+    while True:
+        state = _get_status()
+        if state is None:
+            print(f"\r  {RED}Connessione al demone persa.{RESET}                          ", end="", flush=True)
+        else:
+            pico_rpm     = state.get("pico_rpm",     0)
+            internal_rpm = state.get("internal_rpm", 0)
+            current_duty = state.get("current_duty", duty)
+            print(
+                f"\r  {GREEN}{pico_rpm:>9} RPM{RESET}   "
+                f"{internal_rpm:>9} RPM   "
+                f"{BOLD}{current_duty:>5}%{RESET}   ",
+                end="",
+                flush=True,
+            )
+        time.sleep(REFRESH_SEC)
 
 
 if __name__ == "__main__":

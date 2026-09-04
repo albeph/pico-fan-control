@@ -22,7 +22,6 @@ import json
 import time
 import shutil
 import signal
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -217,7 +216,6 @@ def step_test_fan(device: PicoDevice) -> bool:
     test_sequences = [
         (25,  "25% - bassa velocità"),
         (50,  "50% - velocità media"),
-        (90,  "90% - velocità alta"),
         (100, "100% - velocità massima"),
         (0,   "0%  - spenta"),
     ]
@@ -236,15 +234,11 @@ def step_test_fan(device: PicoDevice) -> bool:
                 ser.write(f"SET {duty}\n".encode())
                 ser.flush()
 
-                # Legge la risposta saltando eventuali righe vuote
-                resp = ""
-                for _ in range(5):
-                    line = ser.readline().decode("ascii", errors="replace").strip()
-                    if line:
-                        resp = line
-                        break
+                # Aspetta la risposta con un piccolo ritardo per dare tempo al firmware
+                time.sleep(0.3)
+                resp = ser.readline().decode("ascii", errors="replace").strip()
 
-                if "OK" in resp or "RPM:" in resp:
+                if resp == "OK":
                     cprint(f"    ✓ Risposta: {resp}", C.GREEN)
                 else:
                     cprint(f"    Risposta inattesa: '{resp}'", C.YELLOW)
@@ -255,12 +249,8 @@ def step_test_fan(device: PicoDevice) -> bool:
                 ser.reset_input_buffer()
                 ser.write(b"RPM\n")
                 ser.flush()
-                rpm_resp = ""
-                for _ in range(5):
-                    line = ser.readline().decode("ascii", errors="replace").strip()
-                    if line:
-                        rpm_resp = line
-                        break
+                time.sleep(0.3)
+                rpm_resp = ser.readline().decode("ascii", errors="replace").strip()
                 cprint(f"    Stato: {rpm_resp}", C.DIM)
 
         cprint("\n✓ Test completato.", C.GREEN, bold=True)
@@ -356,77 +346,45 @@ def step_select_internal_fan() -> dict:
 # ===========================================================================
 
 def step_configure_thresholds() -> dict:
-    """Chiede all'utente di configurare le soglie RPM e le velocità della ventola."""
-    separator("STEP 4 - Soglie e velocità ventola")
-
-    # Carica configurazione esistente se presente
-    curr = {}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE) as f:
-                curr = json.load(f)
-        except Exception:
-            pass
-
-    def_high_rpm  = curr.get("rpm_threshold_high", 4000)
-    def_mid_rpm   = curr.get("rpm_threshold_mid", 2500)
-    def_duty_high = curr.get("duty_high", 100)
-    def_duty_mid  = curr.get("duty_mid", 50)
-    def_duty_low  = curr.get("duty_low", 0)
+    """Chiede all'utente di configurare le soglie RPM."""
+    separator("STEP 4 - Soglie di controllo")
 
     cprint(
-        "Configurazione curva ventola e percentuali PWM:\n"
-        "  Puoi impostare sia le soglie RPM della ventola interna,\n"
-        "  sia la percentuale PWM della ventola esterna (es. 90% se gira più forte del 100%).\n",
+        "Configurazione curva ventola:\n"
+        "  RPM > soglia_alta  -> Ventola al 100%\n"
+        "  RPM >= soglia_mid  -> Ventola al 50%\n"
+        "  RPM < soglia_mid   -> Ventola spenta (0%)\n",
         C.CYAN,
     )
 
-    cprint("Soglie RPM ventola interna:", C.CYAN, bold=True)
-    high = ask("Soglia RPM alta  (ventola a regime massimo)", str(def_high_rpm))
-    mid  = ask("Soglia RPM media (ventola a regime medio)", str(def_mid_rpm))
+    high = ask("Soglia RPM alta  (default 4000)", "4000")
+    mid  = ask("Soglia RPM media (default 2500)", "2500")
 
     try:
         high_val = int(high)
         mid_val  = int(mid)
     except ValueError:
         cprint("Valori non validi, uso i default.", C.YELLOW)
-        high_val, mid_val = def_high_rpm, def_mid_rpm
+        high_val, mid_val = 4000, 2500
 
     if high_val <= mid_val:
         cprint("⚠ La soglia alta deve essere > soglia media. Uso valori di default.", C.YELLOW)
-        high_val, mid_val = def_high_rpm, def_mid_rpm
-
-    cprint("\nVelocità ventola esterna (Duty Cycle PWM 0-100%):", C.CYAN, bold=True)
-    cprint("  (Se la ventola rende di più al 90%, imposta 90 come massima)", C.DIM)
-    d_high = ask("Velocità MASSIMA % (default 100)", str(def_duty_high))
-    d_mid  = ask("Velocità MEDIA   % (default 50)",  str(def_duty_mid))
-    d_low  = ask("Velocità MINIMA  % (default 0)",   str(def_duty_low))
-
-    def _safe_duty(val_str: str, default_val: int) -> int:
-        try:
-            val = int(val_str)
-            return max(0, min(100, val))
-        except ValueError:
-            return default_val
-
-    duty_high_val = _safe_duty(d_high, def_duty_high)
-    duty_mid_val  = _safe_duty(d_mid, def_duty_mid)
-    duty_low_val  = _safe_duty(d_low, def_duty_low)
+        high_val, mid_val = 4000, 2500
 
     cprint(
-        f"\n✓ Configurazione soglie e velocità:\n"
-        f"  > {high_val} RPM  → {duty_high_val}% (massima)\n"
-        f"  {mid_val}-{high_val} RPM → {duty_mid_val}% (media)\n"
-        f"  < {mid_val} RPM  → {duty_low_val}% (minima / spenta)",
+        f"\n✓ Configurazione soglie:\n"
+        f"  > {high_val} RPM  → 100%\n"
+        f"  {mid_val}-{high_val} RPM → 50%\n"
+        f"  < {mid_val} RPM  → 0%",
         C.GREEN,
     )
 
     return {
         "rpm_threshold_high": high_val,
         "rpm_threshold_mid":  mid_val,
-        "duty_high":          duty_high_val,
-        "duty_mid":           duty_mid_val,
-        "duty_low":           duty_low_val,
+        "duty_high":          100,
+        "duty_mid":           50,
+        "duty_low":           0,
     }
 
 
@@ -516,23 +474,9 @@ def main() -> None:
         cprint("Uscita.", C.YELLOW)
         sys.exit(0)
 
-    # Arresto temporaneo del demone se attivo per evitare conflitti sulla seriale
-    daemon_was_active = False
-    try:
-        res = subprocess.run(["systemctl", "is-active", "--quiet", "pico-fan"], check=False)
-        if res.returncode == 0:
-            cprint("\nℹ Arresto temporaneo del servizio pico-fan per consentire l'accesso esclusivo alla seriale...", C.YELLOW)
-            subprocess.run(["systemctl", "stop", "pico-fan"], check=False)
-            daemon_was_active = True
-            time.sleep(1.0)
-    except Exception:
-        pass
-
     # STEP 1: Scansione e selezione dispositivo
     device = step_scan_devices()
     if device is None:
-        if daemon_was_active:
-            subprocess.run(["systemctl", "start", "pico-fan"], check=False)
         cprint("\n✗ Nessun dispositivo selezionato. Uscita.", C.RED)
         sys.exit(1)
 
@@ -545,8 +489,6 @@ def main() -> None:
             C.YELLOW,
         )
         if not ask_yes_no("Continuare comunque?", default=False):
-            if daemon_was_active:
-                subprocess.run(["systemctl", "start", "pico-fan"], check=False)
             sys.exit(1)
 
     # STEP 3: Ventola interna
@@ -562,24 +504,15 @@ def main() -> None:
     separator("COMPLETATO")
     if saved:
         cprint(
-            "✓ Setup completato con successo!\n",
+            "✓ Setup completato con successo!\n\n"
+            "  Prossimi passi:\n"
+            "  1. Avviare il demone:          sudo systemctl start pico-fan\n"
+            "  2. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
+            "  3. Verificare lo stato:        pico-fan-status\n",
             C.GREEN,
             bold=True,
         )
-        cprint("Riavvio del servizio pico-fan con la nuova configurazione...", C.CYAN)
-        subprocess.run(["systemctl", "restart", "pico-fan"], check=False)
-        cprint("✓ Servizio pico-fan riavviato e attivo.", C.GREEN)
-
-        cprint(
-            "\n  Comandi utili:\n"
-            "  • Verificare lo stato:         pico-fan status\n"
-            "  • Test velocità manuale:       pico-fan set 75\n"
-            "  • Log di sistema:              journalctl -u pico-fan -f\n",
-            C.CYAN,
-        )
     else:
-        if daemon_was_active:
-            subprocess.run(["systemctl", "start", "pico-fan"], check=False)
         cprint(
             "⚠ Setup incompleto. Ricontrollare la configurazione e riprovare.",
             C.YELLOW,

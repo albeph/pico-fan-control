@@ -22,7 +22,6 @@ import sys
 import json
 import time
 import socket
-import select
 import signal
 import logging
 import logging.handlers
@@ -166,135 +165,22 @@ class FanDaemon:
         self.config          = config
         self.running         = True
         self.current_duty    = -1          # -1 = non ancora inviato
-        self.manual_duty: Optional[int] = None  # Se impostato, override manuale
         self.serial_conn: Optional[serial.Serial] = None
         self.pico_port: str  = ""
         self.pico_rpm: int   = 0
         self.internal_rpm: int = 0
         self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
-        self._wake_event     = threading.Event()  # risveglia il demone su stop o cambio duty
-
-    def _get_state_dict(self) -> dict:
-        """Restituisce lo stato corrente serializzabile in JSON (thread-safe)."""
-        return {
-            "connected": self.serial_conn is not None,
-            "pico_port": self.pico_port,
-            "internal_rpm": self.internal_rpm,
-            "pico_rpm": self.pico_rpm,
-            "current_duty": self.current_duty if self.current_duty >= 0 else 0,
-            "manual": self.manual_duty is not None,
-            "manual_duty": self.manual_duty,
-            "version": __version__,
-        }
+        self._stop_event     = threading.Event()  # usato per sleep interrompibile senza polling
+        self.manual_mode     = False              # True quando l'utente ha preso il controllo
+        self.manual_duty     = 0                  # Duty impostato manualmente
 
     # -------------------------------------------------------------------
     # Setup iniziale e IPC
     # -------------------------------------------------------------------
 
-    def _handle_ipc_client(self, conn: socket.socket) -> None:
-        """Gestisce una sessione client su socket UNIX."""
-        try:
-            conn.settimeout(0.5)
-            # Controlla se il client invia un comando iniziale
-            rlist, _, _ = select.select([conn], [], [], 0.05)
-            first_line = ""
-            if rlist:
-                raw = conn.recv(1024)
-                if raw:
-                    first_line = raw.decode("utf-8", errors="replace").strip()
-
-            # Caso 1: richiesta semplice status o nessuna richiesta (retrocompatibilità)
-            if not first_line or first_line.upper() == "STATUS" or '"status"' in first_line:
-                with self._lock:
-                    state = self._get_state_dict()
-                conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
-                conn.close()
-                return
-
-            # Caso 2: comando specifico (manual / set / auto)
-            cmd = ""
-            duty_val = None
-            try:
-                msg = json.loads(first_line)
-                cmd = str(msg.get("cmd", "")).lower()
-                duty_val = msg.get("duty")
-            except json.JSONDecodeError:
-                parts = first_line.split()
-                if parts:
-                    cmd = parts[0].lower()
-                    if len(parts) > 1 and parts[1].isdigit():
-                        duty_val = int(parts[1])
-
-            if cmd in ("manual", "set") and duty_val is not None:
-                duty = max(0, min(100, int(duty_val)))
-                logger.info("IPC: Impostazione velocità manuale a %d%%", duty)
-                with self._lock:
-                    self.manual_duty = duty
-                self._wake_event.set()
-
-                # ACK iniziale
-                ack = {"status": "ok", "manual": True, "duty": duty}
-                conn.sendall((json.dumps(ack) + "\n").encode("utf-8"))
-
-                # Sessione manuale attiva: invia lo stato aggiornato ogni secondo.
-                # Se la connessione cade (es. Ctrl+C nel client o chiusura),
-                # il demone ripristina automaticamente il controllo automatico!
-                while self.running:
-                    try:
-                        r, _, _ = select.select([conn], [], [], 1.0)
-                        if r:
-                            data = conn.recv(1024)
-                            if not data:
-                                # Client disconnesso
-                                break
-                            text = data.decode("utf-8", errors="replace").strip().lower()
-                            if "auto" in text or "stop" in text:
-                                break
-
-                        with self._lock:
-                            state = self._get_state_dict()
-                        conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
-                    except (socket.error, OSError):
-                        break
-
-                # Chiusura sessione: ripristina il controllo automatico
-                logger.info("IPC: Sessione manuale terminata, ripristino controllo automatico")
-                with self._lock:
-                    if self.manual_duty == duty:
-                        self.manual_duty = None
-                self._wake_event.set()
-                try:
-                    conn.sendall((json.dumps({"status": "auto_restored"}) + "\n").encode("utf-8"))
-                except Exception:
-                    pass
-                return
-
-            elif cmd in ("auto", "restore"):
-                logger.info("IPC: Richiesto ripristino controllo automatico")
-                with self._lock:
-                    self.manual_duty = None
-                self._wake_event.set()
-                conn.sendall((json.dumps({"status": "auto_restored"}) + "\n").encode("utf-8"))
-                conn.close()
-                return
-
-            else:
-                with self._lock:
-                    state = self._get_state_dict()
-                conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
-                conn.close()
-
-        except Exception as exc:
-            logger.debug("Errore IPC client: %s", exc)
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
     def _start_ipc_server(self) -> None:
-        """Avvia un server socket UNIX per fornire lo stato e accettare comandi dalla CLI."""
+        """Avvia un server socket UNIX per fornire lo stato alla CLI."""
         if os.path.exists(self.sock_path):
             try:
                 os.remove(self.sock_path)
@@ -305,22 +191,66 @@ class FanDaemon:
             self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.server_sock.bind(self.sock_path)
             self.server_sock.listen(5)
-            os.chmod(self.sock_path, 0o666)  # Permette lettura e scrittura a tutti gli utenti
+            os.chmod(self.sock_path, 0o666)  # Permette lettura a tutti gli utenti
         except Exception as exc:
             logger.error("Impossibile creare socket IPC: %s", exc)
             return
-
         def _server_loop():
             while self.running:
                 try:
                     self.server_sock.settimeout(1.0)
                     conn, _ = self.server_sock.accept()
-                    threading.Thread(target=self._handle_ipc_client, args=(conn,), daemon=True).start()
+                    try:
+                        # Legge eventuale comando dal client (max 64 byte)
+                        conn.settimeout(0.5)
+                        try:
+                            raw = conn.recv(64).decode("utf-8", errors="replace").strip()
+                        except socket.timeout:
+                            raw = ""
+
+                        if raw.upper().startswith("SET "):
+                            # Modalità manuale: imposta duty e sospende il controllo automatico
+                            try:
+                                duty = max(0, min(100, int(raw.split()[1])))
+                                with self._lock:
+                                    self.manual_mode = True
+                                    self.manual_duty = duty
+                                    self.current_duty = -1  # forza ri-invio al prossimo ciclo
+                                logger.info("Modalità manuale attivata: duty=%d%%", duty)
+                                conn.sendall(b"OK\n")
+                            except (ValueError, IndexError):
+                                conn.sendall(b"ERR duty non valido\n")
+
+                        elif raw.upper() == "RESUME":
+                            # Ripristina il controllo automatico
+                            with self._lock:
+                                self.manual_mode = False
+                                self.current_duty = -1  # forza ri-invio al prossimo ciclo
+                            logger.info("Controllo automatico ripristinato")
+                            conn.sendall(b"OK\n")
+
+                        else:
+                            # STATUS (o nessun comando): risponde con lo stato corrente
+                            with self._lock:
+                                state = {
+                                    "connected":    self.serial_conn is not None,
+                                    "pico_port":    self.pico_port,
+                                    "internal_rpm": self.internal_rpm,
+                                    "pico_rpm":     self.pico_rpm,
+                                    "current_duty": self.current_duty if self.current_duty >= 0 else 0,
+                                    "manual_mode":  self.manual_mode,
+                                    "version":      __version__,
+                                }
+                            conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
+
+                    finally:
+                        conn.close()
+
                 except socket.timeout:
-                    continue
+                    continue  # atteso: ricontrolla self.running
                 except Exception as exc:
                     if self.running:
-                        logger.error("Errore accept socket IPC: %s", exc)
+                        logger.error("Errore IPC client: %s", exc)
 
         self.ipc_thread = threading.Thread(target=_server_loop, daemon=True)
         self.ipc_thread.start()
@@ -405,21 +335,14 @@ class FanDaemon:
     def _send_command(self, cmd: str) -> Optional[str]:
         """
         Invia un comando al Pico e legge la risposta.
-        Svuota sempre il buffer di input prima dell'invio per evitare desincronizzazioni.
+        Gestisce automaticamente la disconnessione e ritorna None se fallisce.
         """
         if not self.serial_conn:
             return None
         try:
-            self.serial_conn.reset_input_buffer()
             self.serial_conn.write((cmd + "\n").encode("ascii"))
             self.serial_conn.flush()
-            # Legge saltando eventuali righe vuote
-            response = ""
-            for _ in range(5):
-                line = self.serial_conn.readline().decode("ascii", errors="replace").strip()
-                if line:
-                    response = line
-                    break
+            response = self.serial_conn.readline().decode("ascii", errors="replace").strip()
             return response
         except (serial.serialutil.SerialException, OSError) as exc:
             logger.warning("Errore comunicazione seriale: %s", exc)
@@ -429,11 +352,10 @@ class FanDaemon:
     def _fetch_pico_rpm(self) -> int:
         """Richiede gli RPM correnti al Pico via seriale."""
         resp = self._send_command("RPM")
-        if resp and "RPM:" in resp:
+        if resp and resp.startswith("RPM:"):
             try:
-                for part in resp.split():
-                    if part.startswith("RPM:"):
-                        return int(part[4:])
+                rpm_str = resp.split()[0][4:]
+                return int(rpm_str)
             except (ValueError, IndexError):
                 pass
         return 0
@@ -441,13 +363,10 @@ class FanDaemon:
     def _set_duty(self, duty: int) -> bool:
         """
         Imposta il duty cycle della ventola esterna.
-        Restituisce True se il comando è stato confermato con successo.
+        Restituisce True se il comando è stato inviato con successo.
         """
         resp = self._send_command(f"SET {duty}")
-        if resp and ("OK" in resp or "RPM:" in resp):
-            return True
-        logger.warning("Invio comando SET %d fallito, risposta ricevuta: %r", duty, resp)
-        return False
+        return resp == "OK"
 
     # -------------------------------------------------------------------
     # Loop principale
@@ -491,23 +410,22 @@ class FanDaemon:
             # Fase 3: Calcolo duty e invio comando (solo al cambio)
             # ----------------------------------------------------------------
             with self._lock:
-                if self.manual_duty is not None:
-                    target_duty = self.manual_duty
-                    is_manual = True
-                else:
-                    target_duty = compute_target_duty(self.internal_rpm, self.config)
-                    is_manual = False
+                in_manual = self.manual_mode
+                man_duty  = self.manual_duty
+
+            if in_manual:
+                target_duty = man_duty
+            else:
+                target_duty = compute_target_duty(self.internal_rpm, self.config)
 
             if target_duty != self.current_duty:
-                if is_manual:
-                    logger.info("Controllo MANUALE: impostato duty a %d%%", target_duty)
-                else:
-                    logger.info(
-                        "Cambio duty: %s%% -> %s%% (RPM interni: %d)",
-                        self.current_duty if self.current_duty >= 0 else "N/A",
-                        target_duty,
-                        self.internal_rpm,
-                    )
+                logger.info(
+                    "Cambio duty: %s%% -> %s%% (RPM interni: %d%s)",
+                    self.current_duty if self.current_duty >= 0 else "N/A",
+                    target_duty,
+                    self.internal_rpm,
+                    " [MANUALE]" if in_manual else "",
+                )
                 success = self._set_duty(target_duty)
                 if success:
                     self.current_duty = target_duty
@@ -517,9 +435,7 @@ class FanDaemon:
             # ----------------------------------------------------------------
             # Fase 4: Lettura RPM ventola esterna
             # ----------------------------------------------------------------
-            rpm = self._fetch_pico_rpm()
-            with self._lock:
-                self.pico_rpm = rpm
+            self.pico_rpm = self._fetch_pico_rpm()
             logger.debug("RPM ventola esterna: %d", self.pico_rpm)
 
             self._sleep_interruptible(poll_interval)
@@ -530,15 +446,17 @@ class FanDaemon:
         logger.info("Demone terminato")
 
     def _sleep_interruptible(self, seconds: float) -> None:
-        """Sleep bloccante interrompibile da _wake_event (cambio manual_duty o stop)."""
-        self._wake_event.wait(timeout=seconds)
-        self._wake_event.clear()
+        """Sleep bloccante interrompibile da stop().
+        Usa threading.Event: zero wakeup inutili, il thread rimane idle finché
+        non scade il timeout o viene segnalato lo stop.
+        """
+        self._stop_event.wait(timeout=seconds)
 
     def stop(self) -> None:
         """Segnala al demone di terminare il ciclo principale."""
         logger.info("Richiesta di stop ricevuta")
         self.running = False
-        self._wake_event.set()  # Sveglia immediatamente qualsiasi sleep in corso
+        self._stop_event.set()  # Sveglia immediatamente qualsiasi sleep in corso
 
 
 # ===========================================================================

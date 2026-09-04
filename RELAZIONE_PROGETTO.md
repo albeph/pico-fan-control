@@ -151,93 +151,42 @@ Il sistema finale si compone di cinque moduli interconnessi:
 
 ---
 
-### Round 8: Comando Unificato 'pico-fan' e Controllo Manuale Velocità (v1.1.1)
-- **Richiesta Utente:**
-  1. Unificare i 4 binari separati in un solo comando `pico-fan` con sottocomandi (`daemon`, `setup`, `status`, `set`, `manual`, `version`), eliminando i vecchi wrapper separati.
-  2. Aggiungere la possibilità di impostare manualmente la velocità della ventola a una determinata percentuale (es. `pico-fan set 75`), monitorando gli RPM in tempo reale finché l'utente non preme `Ctrl+C`.
-  3. Abilitare e avviare il servizio immediatamente al momento dell'installazione (`systemctl enable --now`).
-  4. Distinguere nel post-install tra prima installazione (mostra i prossimi passi) e aggiornamento (mostra solo "Aggiornamento completato").
-- **Cosa è stato modificato:**
-  - **Dispatcher Unificato (`cli/main.py`):** Unico binario installato in `/usr/bin/pico-fan`. Se chiamato senza argomenti o con `--help`, stampa una guida chiara a colori con tutti i comandi disponibili ed esempi.
-  - **Controllo Manuale (`cli/manual.py`):** Nuovo sottocomando `pico-fan set <0-100>` (e alias `pico-fan manual`). Comunica tramite socket IPC col demone attivo, impostando istantaneamente il duty cycle richiesto e ciclando a video i giri ventola (Pico RPM e Interna RPM).
-  - **Ripristino Fail-Safe Automatico:** Alla pressione di `Ctrl+C` (o se la sessione cade inaspettatamente), il socket si chiude e il demone ripristina immediatamente la modalità automatica calcolata in base alla temperatura/RPM interni.
-  - **Display di Stato Avanzato (`cli/status.py`):** Se è attiva una sessione manuale, `pico-fan status` segnala esplicitamente l'override con l'etichetta `(MANUALE)`.
-- **Risultato:** Esperienza utente estremamente pulita, moderna e sicura. Release `v1.1.1` generata.
-
----
-
-### Round 9: Personalizzazione Velocità Massima e Duty Cycle nel Setup (v1.1.2)
-- **Richiesta Utente:** Possibilità di configurare durante `pico-fan setup` la velocità massima della ventola (ad esempio impostando il 90% come massimo se a quella percentuale rende di più rispetto al 100%).
-- **Cosa è stato modificato:**
-  - **Wizard Setup (`cli/setup_wizard.py`):**
-    - Aggiunto lo step di collaudo al 90% nella sequenza di test iniziale (25%, 50%, 90%, 100%, 0%) per consentire la verifica visiva e strumentale dei giri.
-    - Nello Step 4 del wizard, ora viene chiesto esplicitamente all'utente di definire la velocità massima, media e minima in percentuale PWM (con valori predefiniti intelligenti letti dalla configurazione esistente o dai default di sistema).
-    - Salvataggio dei parametri `duty_high`, `duty_mid`, `duty_low` in `/etc/pico-fan/config.json`.
-- **Risultato:** Massima flessibilità d'uso per qualsiasi ventola PWM con caratteristiche non lineari. Release `v1.1.2` generata.
-
----
-
-### Round 10: Risoluzione Conflitti Seriale, Desync Buffer e Crash REPL (v1.1.3)
-- **Problema Riscontrato:** La ventola non modificava più la velocità e gli RPM risultavano a zero o bloccati.
-- **Cause Tecniche Identificate:**
-  1. **Concorrenza sulla porta seriale tra Demone e Setup:** A seguito dell'abilitazione immediata all'installazione (`enable --now`), il demone era attivo in background e interrogava `/dev/ttyACM0` ogni 2 secondi. Se l'utente lanciava contemporaneamente `sudo pico-fan setup`, entrambi i processi leggevano e scrivevano sulla medesima interfaccia seriale, intercettandosi a vicenda le risposte (`OK`, `RPM:...`) e sovrascrivendo la velocità.
-  2. **Desincronizzazione del buffer di ricezione (`fan_daemon.py`):** Il metodo `_send_command` non svuotava preventivamente il buffer seriale (`reset_input_buffer()`). Un singolo byte o newline rimasto nel buffer sfasava l'intero flusso di lettura: i comandi `SET` leggevano la risposta del precedente `RPM` (fallendo), e i comandi `RPM` leggevano `OK` (restituendo 0 RPM).
-  3. **Arresto accidentale del Firmware MicroPython (Caduta in REPL `>>>`):** Se sulla linea seriale arrivava un carattere `\x03` (Ctrl+C, ad esempio all'interruzione di una sessione o durante il cambio di stato DTR/RTS), il loop del firmware su RP2040 terminava con `KeyboardInterrupt`, lasciando il Pico fermo nel prompt interattivo.
-- **Soluzioni Implementate:**
-  - **Arresto/Riavvio Automatico del Demone nel Setup (`cli/setup_wizard.py`):** All'avvio del wizard, se `pico-fan.service` è attivo viene temporaneamente arrestato per garantire l'accesso esclusivo all'hardware durante i test. Al completamento del setup, viene riavviato automaticamente.
-  - **Svuotamento Preventivo del Buffer Seriale (`daemon/fan_daemon.py`):** Invocazione sistematica di `reset_input_buffer()` prima di qualsiasi scrittura su porta seriale e lettura multi-riga che ignora eventuali newline vuote, garantendo l'allineamento perfetto tra comando e risposta.
-  - **Protezione Anti-Crash nel Firmware (`firmware/main.py`):** Inserito blocco `try ... except KeyboardInterrupt` nel ciclo principale di MicroPython, in modo che il firmware ignori i segnali di interruzione seriale e rimanga sempre in esecuzione.
-- **Risultato:** Flusso seriale stabile al 100%, zero conflitti tra processi e lettura/scrittura sempre sincronizzata. Release `v1.1.3` generata.
-
----
-
 ## 4. Risultati Finali e Valutazione del Software
 
-Il software si trova attualmente nello stato stabile **`v1.1.3`**.
+Il software si trova attualmente nello stato stabile **`v1.0.6`**.
 
 ### Pacchetto Rilasciato:
-- **File pacchetto:** `pico-fan_1.1.3_all.deb`
-- **Comando installato nel sistema:**
-  - `pico-fan`: Eseguibile unificato con i seguenti sottocomandi:
-    - `pico-fan`: Mostra la guida completa e gli esempi.
-    - `pico-fan status`: Diagnostica rapida dello stato e degli RPM.
-    - `pico-fan set <0-100>` (o `manual`): Imposta velocità fissa e monitora RPM in tempo reale fino a `Ctrl+C`.
-    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale e velocità PWM personalizzate (con isolamento automatico del servizio).
-    - `pico-fan daemon`: Demone di sincronizzazione (avviato in automatico da systemd).
-    - `pico-fan version`: Versione del pacchetto installato.
+- **File pacchetto:** `pico-fan_1.0.6_all.deb`
+- **Comandi installati nel sistema:**
+  - `pico-fan-setup`: Wizard di installazione e test hardware.
+  - `pico-fan-status`: CLI di diagnostica e monitoraggio veloce.
+  - `pico-fan-daemon`: Demone di gestione in background.
+  - `pico-fan-version`: Output della versione installata.
 
 ### Matrice delle Caratteristiche:
 | Funzionalità | Stato | Note |
 |---|---|---|
 | Controllo PWM 25kHz | ✅ Attivo | Gestito via MicroPython su RP2040 (GP15) |
 | Lettura Tachimetro Interrupt | ✅ Attivo | Conteggio ad alta precisione su RP2040 (GP14) |
-| Firmware Anti-REPL Crash | ✅ Attivo | Gestione `KeyboardInterrupt` per prevenire arresti del microcontrollore |
 | Sincronizzazione RPM Sorgente | ✅ Attivo | Supporto ThinkPad ACPI e hwmon generici |
-| Svuotamento Preventivo Buffer | ✅ Attivo | `reset_input_buffer()` sistematico, zero sfasamenti di lettura |
-| Isolamento Seriale nel Setup | ✅ Attivo | Arresto e riavvio automatico di `systemd` durante i test |
-| Configurazione Duty Massima/Media | ✅ Attivo | Definibile da wizard (es. 90% come massimo) |
-| Controllo Manuale Temporaneo | ✅ Attivo | `pico-fan set <0-100>` con monitoraggio live e ripristino su Ctrl+C |
 | Tolleranza ai Guasti USB | ✅ Attivo | Riconnessione automatica senza crash in caso di scollegamento |
-| Interfaccia CLI Unificata | ✅ Attivo | Solo `/usr/bin/pico-fan` con sottocomandi chiari |
+| Interfaccia CLI Status | ✅ Attivo | Comunicazione socket UNIX `/run/pico-fan.sock` |
 | Impatto CPU | ✅ < 0.1% | Uso di `threading.Event` bloccante |
 | Compatibilità Kernel | ✅ 100% | Zero moduli C / Zero dipendenze `linux-headers` |
 
 ---
 
-## 5. Comandi Utili per l'Utilizzo Quotidiano
+## 5. Comandi Utili per il Mantenimento
 
 ```bash
-# Installazione o aggiornamento del pacchetto (si avvia da solo)
-sudo dpkg -i pico-fan_1.1.3_all.deb
+# Installazione o aggiornamento del pacchetto
+sudo dpkg -i pico-fan_1.0.6_all.deb
 
-# Configurazione iniziale guidata (ferma e riavvia il demone da solo)
-sudo pico-fan setup
-
-# Controllo manuale temporaneo (ad es. test al 90%)
-pico-fan set 90
+# Configurazione guidata iniziale
+sudo pico-fan-setup
 
 # Verifica dello stato in tempo reale
-pico-fan status
+pico-fan-status
 
 # Gestione servizio systemd
 sudo systemctl restart pico-fan

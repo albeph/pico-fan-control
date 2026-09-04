@@ -151,17 +151,35 @@ Il sistema finale si compone di cinque moduli interconnessi:
 
 ---
 
+### Round 8: Comando Unificato 'pico-fan' e Controllo Manuale Velocità (v1.1.1)
+- **Richiesta Utente:**
+  1. Unificare i 4 binari separati in un solo comando `pico-fan` con sottocomandi (`daemon`, `setup`, `status`, `set`, `manual`, `version`), eliminando i vecchi wrapper separati.
+  2. Aggiungere la possibilità di impostare manualmente la velocità della ventola a una determinata percentuale (es. `pico-fan set 75`), monitorando gli RPM in tempo reale finché l'utente non preme `Ctrl+C`.
+  3. Abilitare e avviare il servizio immediatamente al momento dell'installazione (`systemctl enable --now`).
+  4. Distinguere nel post-install tra prima installazione (mostra i prossimi passi) e aggiornamento (mostra solo "Aggiornamento completato").
+- **Cosa è stato modificato:**
+  - **Dispatcher Unificato (`cli/main.py`):** Unico binario installato in `/usr/bin/pico-fan`. Se chiamato senza argomenti o con `--help`, stampa una guida chiara a colori con tutti i comandi disponibili ed esempi.
+  - **Controllo Manuale (`cli/manual.py`):** Nuovo sottocomando `pico-fan set <0-100>` (e alias `pico-fan manual`). Comunica tramite socket IPC col demone attivo, impostando istantaneamente il duty cycle richiesto e ciclando a video i giri ventola (Pico RPM e Interna RPM).
+  - **Ripristino Fail-Safe Automatico:** Alla pressione di `Ctrl+C` (o se la sessione cade inaspettatamente), il socket si chiude e il demone ripristina immediatamente la modalità automatica calcolata in base alla temperatura/RPM interni.
+  - **Display di Stato Avanzato (`cli/status.py`):** Se è attiva una sessione manuale, `pico-fan status` segnala esplicitamente l'override con l'etichetta `(MANUALE)`.
+- **Risultato:** Esperienza utente estremamente pulita, moderna e sicura. Release `v1.1.1` generata.
+
+---
+
 ## 4. Risultati Finali e Valutazione del Software
 
-Il software si trova attualmente nello stato stabile **`v1.0.6`**.
+Il software si trova attualmente nello stato stabile **`v1.1.1`**.
 
 ### Pacchetto Rilasciato:
-- **File pacchetto:** `pico-fan_1.0.6_all.deb`
-- **Comandi installati nel sistema:**
-  - `pico-fan-setup`: Wizard di installazione e test hardware.
-  - `pico-fan-status`: CLI di diagnostica e monitoraggio veloce.
-  - `pico-fan-daemon`: Demone di gestione in background.
-  - `pico-fan-version`: Output della versione installata.
+- **File pacchetto:** `pico-fan_1.1.1_all.deb`
+- **Comando installato nel sistema:**
+  - `pico-fan`: Eseguibile unificato con i seguenti sottocomandi:
+    - `pico-fan`: Mostra la guida completa e gli esempi.
+    - `pico-fan status`: Diagnostica rapida dello stato e degli RPM.
+    - `pico-fan set <0-100>` (o `manual`): Imposta velocità fissa e monitora RPM in tempo reale fino a `Ctrl+C`.
+    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale.
+    - `pico-fan daemon`: Demone di sincronizzazione (avviato in automatico da systemd).
+    - `pico-fan version`: Versione del pacchetto installato.
 
 ### Matrice delle Caratteristiche:
 | Funzionalità | Stato | Note |
@@ -169,24 +187,28 @@ Il software si trova attualmente nello stato stabile **`v1.0.6`**.
 | Controllo PWM 25kHz | ✅ Attivo | Gestito via MicroPython su RP2040 (GP15) |
 | Lettura Tachimetro Interrupt | ✅ Attivo | Conteggio ad alta precisione su RP2040 (GP14) |
 | Sincronizzazione RPM Sorgente | ✅ Attivo | Supporto ThinkPad ACPI e hwmon generici |
+| Controllo Manuale Temporaneo | ✅ Attivo | `pico-fan set <0-100>` con monitoraggio live e ripristino su Ctrl+C |
 | Tolleranza ai Guasti USB | ✅ Attivo | Riconnessione automatica senza crash in caso di scollegamento |
-| Interfaccia CLI Status | ✅ Attivo | Comunicazione socket UNIX `/run/pico-fan.sock` |
+| Interfaccia CLI Unificata | ✅ Attivo | Solo `/usr/bin/pico-fan` con sottocomandi chiari |
 | Impatto CPU | ✅ < 0.1% | Uso di `threading.Event` bloccante |
 | Compatibilità Kernel | ✅ 100% | Zero moduli C / Zero dipendenze `linux-headers` |
 
 ---
 
-## 5. Comandi Utili per il Mantenimento
+## 5. Comandi Utili per l'Utilizzo Quotidiano
 
 ```bash
-# Installazione o aggiornamento del pacchetto
-sudo dpkg -i pico-fan_1.0.6_all.deb
+# Installazione o aggiornamento del pacchetto (si avvia da solo)
+sudo dpkg -i pico-fan_1.1.1_all.deb
 
-# Configurazione guidata iniziale
-sudo pico-fan-setup
+# Configurazione iniziale guidata
+sudo pico-fan setup
+
+# Controllo manuale temporaneo (ad es. test al 75%)
+pico-fan set 75
 
 # Verifica dello stato in tempo reale
-pico-fan-status
+pico-fan status
 
 # Gestione servizio systemd
 sudo systemctl restart pico-fan

@@ -73,8 +73,10 @@ pico-fan-control/
 │   ├── hardware_detector.py # Scanner porte seriali Pico
 │   └── version.py            # Risoluzione versione runtime
 ├── cli/
-│   ├── setup_wizard.py       # Wizard CLI (pico-fan-setup)
-│   └── status.py             # Diagnostica CLI (pico-fan-status)
+│   ├── main.py               # Eseguibile unificato pico-fan
+│   ├── setup_wizard.py       # Sottocomando 'setup' (wizard interattivo)
+│   ├── status.py             # Sottocomando 'status' (diagnostica IPC)
+│   └── manual.py             # Sottocomando 'set' / 'manual' (controllo manuale)
 ├── systemd/
 │   └── pico-fan.service      # Unit systemd
 ├── udev/
@@ -254,20 +256,31 @@ File: `/etc/pico-fan/config.json`
 
 ---
 
-## Gestione DKMS
+## Comandi CLI pico-fan
 
-Il modulo kernel viene compilato automaticamente ad ogni aggiornamento kernel tramite DKMS.
+Tutte le operazioni sono gestite dal comando unificato `pico-fan`:
 
 ```bash
-# Stato DKMS
-dkms status pico-fan
+# Mostra la guida dei comandi
+pico-fan
 
-# Ricompilazione manuale
-sudo dkms build -m pico-fan -v 1.0.0
+# Visualizza lo stato corrente (connessione, RPM interni, RPM Pico, duty)
+pico-fan status
 
-# Verifica modulo caricato
-lsmod | grep pico_fan
-ls /sys/class/hwmon/*/name | xargs grep pico_fan
+# Imposta manualmente la velocità e monitora gli RPM (Ctrl+C per ripristinare auto)
+pico-fan set 75
+# oppure:
+pico-fan manual 75
+
+# Esegui il wizard guidato di configurazione
+sudo pico-fan setup
+
+# Mostra la versione installata
+pico-fan version
+
+# Gestione servizio di sistema
+sudo systemctl restart pico-fan
+sudo systemctl status pico-fan
 ```
 
 ---
@@ -314,25 +327,25 @@ lsusb | grep -i "2e8a"
 dmesg | tail -20 | grep -i "usb\|cdc\|acm"
 ```
 
-### Il modulo kernel non si carica
+### Il socket IPC non risponde
 ```bash
-modprobe pico_fan_hwmon
-dmesg | tail -10
-dkms status
-# Reinstallare: sudo dkms install -m pico-fan -v 1.0.0
-```
+# Verifica lo stato del servizio systemd
+sudo systemctl status pico-fan
 
-### `sensors` non mostra pico_fan
-```bash
-sudo modprobe pico_fan_hwmon
-sensors-detect --auto
-sensors
+# Visualizza i log in tempo reale
+journalctl -u pico-fan -f
+
+# Se necessario, riavvia il servizio
+sudo systemctl restart pico-fan
 ```
 
 ### Il demone non si avvia
 ```bash
+# Controlla gli ultimi 50 log di avvio
 journalctl -u pico-fan -n 50
-# Eseguire wizard: sudo pico-fan-setup
+
+# Verifica se il file di configurazione è presente o riesegui il setup:
+sudo pico-fan setup
 ```
 
 ---

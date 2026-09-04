@@ -37,6 +37,7 @@ def main():
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(2.0)
             s.connect(SOCK_PATH)
+            s.sendall(b'{"cmd": "status"}\n')
             
             # Leggi risposta (fino a newline)
             data = b""
@@ -61,15 +62,17 @@ def main():
     int_rpm = state.get("internal_rpm", 0)
     ext_rpm = state.get("pico_rpm", 0)
     duty = state.get("current_duty", 0)
+    is_manual = state.get("manual", False)
     version = state.get("version", "unknown")
 
     # Formattazione
     status_str = f"{Col.GREEN}Connesso{Col.RESET}" if connected else f"{Col.RED}Scollegato{Col.RESET}"
+    duty_suffix = f" {Col.YELLOW}(MANUALE){Col.RESET}" if is_manual else ""
     
     print(f"\n{Col.BOLD}{Col.CYAN}=== pico-fan-control v{version} ==={Col.RESET}\n")
     print(f" {Col.BOLD}Stato dispositivo:{Col.RESET}  {status_str} ({port})")
     print(f" {Col.BOLD}Sorgente (Server):{Col.RESET}  {int_rpm} RPM")
-    print(f" {Col.BOLD}Destinazione (Pico):{Col.RESET} {ext_rpm} RPM  [Target PWM: {duty}%]")
+    print(f" {Col.BOLD}Destinazione (Pico):{Col.RESET} {ext_rpm} RPM  [Target PWM: {duty}%{duty_suffix}]")
     print("")
 
 if __name__ == "__main__":

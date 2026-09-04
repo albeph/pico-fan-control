@@ -24,8 +24,10 @@ pico-fan-control/
 │   └── version.py            # Utility per la risoluzione dinamica della versione runtime
 │
 ├── cli/                      # Strumenti di interfaccia a riga di comando (User Tools)
-│   ├── setup_wizard.py       # Eseguibile pico-fan-setup: wizard interattivo di configurazione
-│   └── status.py             # Eseguibile pico-fan-status: client IPC per lo stato in tempo reale
+│   ├── main.py               # Eseguibile unificato pico-fan (dispatcher con sottocomandi)
+│   ├── setup_wizard.py       # Sottocomando 'setup': wizard interattivo di configurazione
+│   ├── status.py             # Sottocomando 'status': client IPC per lo stato in tempo reale
+│   └── manual.py             # Sottocomando 'set' / 'manual': controllo manuale e monitoraggio RPM
 │
 ├── systemd/                  # Configurazione del servizio di sistema
 │   └── pico-fan.service      # Unit file systemd per l'avvio automatico al boot
@@ -57,14 +59,16 @@ Contiene il codice destinato al microcontrollore Raspberry Pi Pico (RP2040).
 
 ### 2. `daemon/`
 Contiene il cuore del servizio di backend in esecuzione sul server/host Linux.
-* **`fan_daemon.py`**: Demone principale. Legge gli RPM sorgente (`/proc/acpi/ibm/fan` o `hwmon`), calcola la curva di risposta della ventola (0%, 50%, 100%), controlla la seriale e gestisce un server UNIX Domain Socket su `/run/pico-fan.sock` per fornire lo stato alla CLI. Usa `threading.Event` per consumo CPU < 0.1%.
+* **`fan_daemon.py`**: Demone principale. Legge gli RPM sorgente (`/proc/acpi/ibm/fan` o `hwmon`), calcola la curva di risposta della ventola (0%, 50%, 100%), controlla la seriale e gestisce un server UNIX Domain Socket su `/run/pico-fan.sock` per fornire lo stato e accettare comandi di override manuale dalla CLI. Usa `threading.Event` per consumo CPU < 0.1%.
 * **`hardware_detector.py`**: Modulo per scansionare `/dev/serial/by-id/` ed identificare in modo univoco le schede Pico collegate.
 * **`version.py`**: Modulo helper per risolvere la versione del software a runtime leggendo da Git o dal file `VERSION`.
 
 ### 3. `cli/`
-Contiene i tool a riga di comando rivolti all'utente.
-* **`setup_wizard.py`** (wrapper: `pico-fan-setup`): Wizard guidato interattivo a colori. Guida l'utente nel rilevamento hardware, test velocità ventola, scelta della sorgente RPM e salvataggio della configurazione in `/etc/pico-fan/config.json`.
-* **`status.py`** (wrapper: `pico-fan-status`): Client IPC leggibile. Si connette al socket UNIX `/run/pico-fan.sock` ed eroga la diagnostica formattata (RPM sorgente, RPM Pico, Duty %, Porta Seriale).
+Contiene l'eseguibile unico `/usr/bin/pico-fan` e i relativi sottomoduli:
+* **`main.py`**: Punto di ingresso unico `/usr/bin/pico-fan`. Instrada i comandi (`daemon`, `setup`, `status`, `set`, `manual`, `version`) e mostra la guida `--help`.
+* **`setup_wizard.py`** (`pico-fan setup`): Wizard guidato interattivo a colori. Guida l'utente nel rilevamento hardware, test velocità ventola, scelta della sorgente RPM e salvataggio della configurazione in `/etc/pico-fan/config.json`.
+* **`status.py`** (`pico-fan status`): Client IPC rapido. Si connette al socket UNIX `/run/pico-fan.sock` ed eroga la diagnostica formattata (RPM sorgente, RPM Pico, Duty %, Porta Seriale, flag MANUALE).
+* **`manual.py`** (`pico-fan set <duty>` / `pico-fan manual <duty>`): Imposta la velocità della ventola a una percentuale fissa (0-100%) e mostra gli RPM in tempo reale fino alla pressione di Ctrl+C, momento in cui il controllo automatico viene ripristinato istantaneamente.
 
 ### 4. `systemd/`
 * **`pico-fan.service`**: File di servizio per `systemd`. Permette di gestire il demone tramite `systemctl start/stop/status/enable pico-fan`.

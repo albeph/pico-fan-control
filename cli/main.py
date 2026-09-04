@@ -45,23 +45,26 @@ HELP = f"""\
   pico-fan <comando> [opzioni]
 
 {BOLD}Comandi:{RESET}
-  {GREEN}daemon{RESET}    Avvia il demone di sincronizzazione RPM (usato da systemd)
-  {GREEN}setup{RESET}     Wizard interattivo di configurazione e test hardware
-  {GREEN}status{RESET}    Mostra lo stato corrente del demone (RPM, duty, porta)
-  {GREEN}version{RESET}   Mostra la versione installata
+  {GREEN}daemon{RESET}          Avvia il demone di sincronizzazione RPM (usato da systemd)
+  {GREEN}setup{RESET}           Wizard interattivo di configurazione e test hardware
+  {GREEN}status{RESET}          Mostra lo stato corrente del demone (RPM, duty, porta)
+  {GREEN}set <0-100>{RESET}     Imposta manualmente la velocità (manuale fino a Ctrl+C)
+  {GREEN}manual <0-100>{RESET}  Alias di 'set'
+  {GREEN}version{RESET}         Mostra la versione installata
 
 {BOLD}Esempi:{RESET}
-  {DIM}# Primo avvio:{RESET}
+  {DIM}# Imposta la velocità manuale al 75% e monitora gli RPM:{RESET}
+  pico-fan set 75
+
+  {DIM}# Verifica diagnostica rapida:{RESET}
+  pico-fan status
+
+  {DIM}# Configurazione guidata iniziale:{RESET}
   sudo pico-fan setup
 
-  {DIM}# Avvia il demone manualmente:{RESET}
-  sudo pico-fan daemon
-
-  {DIM}# Oppure tramite systemd (raccomandato):{RESET}
+  {DIM}# Avvia o controlla il servizio di sistema:{RESET}
   sudo systemctl start pico-fan
-
-  {DIM}# Diagnostica rapida:{RESET}
-  pico-fan status
+  sudo systemctl status pico-fan
 
   {DIM}# Versione installata:{RESET}
   pico-fan version
@@ -101,6 +104,12 @@ def _cmd_status() -> None:
     main()
 
 
+def _cmd_manual() -> None:
+    """Imposta manualmente la velocità e monitora gli RPM."""
+    from manual import main
+    main()
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -108,6 +117,8 @@ COMMANDS: dict[str, tuple[str, callable]] = {
     "daemon":  ("Avvia il demone di sincronizzazione RPM",  _cmd_daemon),
     "setup":   ("Wizard interattivo di configurazione",     _cmd_setup),
     "status":  ("Mostra stato in tempo reale",              _cmd_status),
+    "set":     ("Imposta velocità manuale (0-100%)",        _cmd_manual),
+    "manual":  ("Alias di 'set'",                           _cmd_manual),
     "version": ("Mostra la versione installata",            _cmd_version),
 }
 

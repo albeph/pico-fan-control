@@ -177,18 +177,32 @@ Il sistema finale si compone di cinque moduli interconnessi:
 
 ---
 
+### Round 10: Risoluzione Conflitti Seriale, Desync Buffer e Crash REPL (v1.1.3)
+- **Problema Riscontrato:** La ventola non modificava più la velocità e gli RPM risultavano a zero o bloccati.
+- **Cause Tecniche Identificate:**
+  1. **Concorrenza sulla porta seriale tra Demone e Setup:** A seguito dell'abilitazione immediata all'installazione (`enable --now`), il demone era attivo in background e interrogava `/dev/ttyACM0` ogni 2 secondi. Se l'utente lanciava contemporaneamente `sudo pico-fan setup`, entrambi i processi leggevano e scrivevano sulla medesima interfaccia seriale, intercettandosi a vicenda le risposte (`OK`, `RPM:...`) e sovrascrivendo la velocità.
+  2. **Desincronizzazione del buffer di ricezione (`fan_daemon.py`):** Il metodo `_send_command` non svuotava preventivamente il buffer seriale (`reset_input_buffer()`). Un singolo byte o newline rimasto nel buffer sfasava l'intero flusso di lettura: i comandi `SET` leggevano la risposta del precedente `RPM` (fallendo), e i comandi `RPM` leggevano `OK` (restituendo 0 RPM).
+  3. **Arresto accidentale del Firmware MicroPython (Caduta in REPL `>>>`):** Se sulla linea seriale arrivava un carattere `\x03` (Ctrl+C, ad esempio all'interruzione di una sessione o durante il cambio di stato DTR/RTS), il loop del firmware su RP2040 terminava con `KeyboardInterrupt`, lasciando il Pico fermo nel prompt interattivo.
+- **Soluzioni Implementate:**
+  - **Arresto/Riavvio Automatico del Demone nel Setup (`cli/setup_wizard.py`):** All'avvio del wizard, se `pico-fan.service` è attivo viene temporaneamente arrestato per garantire l'accesso esclusivo all'hardware durante i test. Al completamento del setup, viene riavviato automaticamente.
+  - **Svuotamento Preventivo del Buffer Seriale (`daemon/fan_daemon.py`):** Invocazione sistematica di `reset_input_buffer()` prima di qualsiasi scrittura su porta seriale e lettura multi-riga che ignora eventuali newline vuote, garantendo l'allineamento perfetto tra comando e risposta.
+  - **Protezione Anti-Crash nel Firmware (`firmware/main.py`):** Inserito blocco `try ... except KeyboardInterrupt` nel ciclo principale di MicroPython, in modo che il firmware ignori i segnali di interruzione seriale e rimanga sempre in esecuzione.
+- **Risultato:** Flusso seriale stabile al 100%, zero conflitti tra processi e lettura/scrittura sempre sincronizzata. Release `v1.1.3` generata.
+
+---
+
 ## 4. Risultati Finali e Valutazione del Software
 
-Il software si trova attualmente nello stato stabile **`v1.1.2`**.
+Il software si trova attualmente nello stato stabile **`v1.1.3`**.
 
 ### Pacchetto Rilasciato:
-- **File pacchetto:** `pico-fan_1.1.2_all.deb`
+- **File pacchetto:** `pico-fan_1.1.3_all.deb`
 - **Comando installato nel sistema:**
   - `pico-fan`: Eseguibile unificato con i seguenti sottocomandi:
     - `pico-fan`: Mostra la guida completa e gli esempi.
     - `pico-fan status`: Diagnostica rapida dello stato e degli RPM.
     - `pico-fan set <0-100>` (o `manual`): Imposta velocità fissa e monitora RPM in tempo reale fino a `Ctrl+C`.
-    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale e velocità PWM personalizzate.
+    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale e velocità PWM personalizzate (con isolamento automatico del servizio).
     - `pico-fan daemon`: Demone di sincronizzazione (avviato in automatico da systemd).
     - `pico-fan version`: Versione del pacchetto installato.
 
@@ -197,7 +211,10 @@ Il software si trova attualmente nello stato stabile **`v1.1.2`**.
 |---|---|---|
 | Controllo PWM 25kHz | ✅ Attivo | Gestito via MicroPython su RP2040 (GP15) |
 | Lettura Tachimetro Interrupt | ✅ Attivo | Conteggio ad alta precisione su RP2040 (GP14) |
+| Firmware Anti-REPL Crash | ✅ Attivo | Gestione `KeyboardInterrupt` per prevenire arresti del microcontrollore |
 | Sincronizzazione RPM Sorgente | ✅ Attivo | Supporto ThinkPad ACPI e hwmon generici |
+| Svuotamento Preventivo Buffer | ✅ Attivo | `reset_input_buffer()` sistematico, zero sfasamenti di lettura |
+| Isolamento Seriale nel Setup | ✅ Attivo | Arresto e riavvio automatico di `systemd` durante i test |
 | Configurazione Duty Massima/Media | ✅ Attivo | Definibile da wizard (es. 90% come massimo) |
 | Controllo Manuale Temporaneo | ✅ Attivo | `pico-fan set <0-100>` con monitoraggio live e ripristino su Ctrl+C |
 | Tolleranza ai Guasti USB | ✅ Attivo | Riconnessione automatica senza crash in caso di scollegamento |
@@ -211,13 +228,13 @@ Il software si trova attualmente nello stato stabile **`v1.1.2`**.
 
 ```bash
 # Installazione o aggiornamento del pacchetto (si avvia da solo)
-sudo dpkg -i pico-fan_1.1.2_all.deb
+sudo dpkg -i pico-fan_1.1.3_all.deb
 
-# Configurazione iniziale guidata
+# Configurazione iniziale guidata (ferma e riavvia il demone da solo)
 sudo pico-fan setup
 
-# Controllo manuale temporaneo (ad es. test al 75%)
-pico-fan set 75
+# Controllo manuale temporaneo (ad es. test al 90%)
+pico-fan set 90
 
 # Verifica dello stato in tempo reale
 pico-fan status

@@ -22,6 +22,7 @@ import json
 import time
 import shutil
 import signal
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -235,11 +236,15 @@ def step_test_fan(device: PicoDevice) -> bool:
                 ser.write(f"SET {duty}\n".encode())
                 ser.flush()
 
-                # Aspetta la risposta con un piccolo ritardo per dare tempo al firmware
-                time.sleep(0.3)
-                resp = ser.readline().decode("ascii", errors="replace").strip()
+                # Legge la risposta saltando eventuali righe vuote
+                resp = ""
+                for _ in range(5):
+                    line = ser.readline().decode("ascii", errors="replace").strip()
+                    if line:
+                        resp = line
+                        break
 
-                if resp == "OK":
+                if "OK" in resp or "RPM:" in resp:
                     cprint(f"    ✓ Risposta: {resp}", C.GREEN)
                 else:
                     cprint(f"    Risposta inattesa: '{resp}'", C.YELLOW)
@@ -250,8 +255,12 @@ def step_test_fan(device: PicoDevice) -> bool:
                 ser.reset_input_buffer()
                 ser.write(b"RPM\n")
                 ser.flush()
-                time.sleep(0.3)
-                rpm_resp = ser.readline().decode("ascii", errors="replace").strip()
+                rpm_resp = ""
+                for _ in range(5):
+                    line = ser.readline().decode("ascii", errors="replace").strip()
+                    if line:
+                        rpm_resp = line
+                        break
                 cprint(f"    Stato: {rpm_resp}", C.DIM)
 
         cprint("\n✓ Test completato.", C.GREEN, bold=True)
@@ -507,9 +516,23 @@ def main() -> None:
         cprint("Uscita.", C.YELLOW)
         sys.exit(0)
 
+    # Arresto temporaneo del demone se attivo per evitare conflitti sulla seriale
+    daemon_was_active = False
+    try:
+        res = subprocess.run(["systemctl", "is-active", "--quiet", "pico-fan"], check=False)
+        if res.returncode == 0:
+            cprint("\nℹ Arresto temporaneo del servizio pico-fan per consentire l'accesso esclusivo alla seriale...", C.YELLOW)
+            subprocess.run(["systemctl", "stop", "pico-fan"], check=False)
+            daemon_was_active = True
+            time.sleep(1.0)
+    except Exception:
+        pass
+
     # STEP 1: Scansione e selezione dispositivo
     device = step_scan_devices()
     if device is None:
+        if daemon_was_active:
+            subprocess.run(["systemctl", "start", "pico-fan"], check=False)
         cprint("\n✗ Nessun dispositivo selezionato. Uscita.", C.RED)
         sys.exit(1)
 
@@ -522,6 +545,8 @@ def main() -> None:
             C.YELLOW,
         )
         if not ask_yes_no("Continuare comunque?", default=False):
+            if daemon_was_active:
+                subprocess.run(["systemctl", "start", "pico-fan"], check=False)
             sys.exit(1)
 
     # STEP 3: Ventola interna
@@ -537,15 +562,24 @@ def main() -> None:
     separator("COMPLETATO")
     if saved:
         cprint(
-            "✓ Setup completato con successo!\n\n"
-            "  Prossimi passi:\n"
-            "  1. Avviare il demone:          sudo systemctl start pico-fan\n"
-            "  2. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
-            "  3. Verificare lo stato:        pico-fan-status\n",
+            "✓ Setup completato con successo!\n",
             C.GREEN,
             bold=True,
         )
+        cprint("Riavvio del servizio pico-fan con la nuova configurazione...", C.CYAN)
+        subprocess.run(["systemctl", "restart", "pico-fan"], check=False)
+        cprint("✓ Servizio pico-fan riavviato e attivo.", C.GREEN)
+
+        cprint(
+            "\n  Comandi utili:\n"
+            "  • Verificare lo stato:         pico-fan status\n"
+            "  • Test velocità manuale:       pico-fan set 75\n"
+            "  • Log di sistema:              journalctl -u pico-fan -f\n",
+            C.CYAN,
+        )
     else:
+        if daemon_was_active:
+            subprocess.run(["systemctl", "start", "pico-fan"], check=False)
         cprint(
             "⚠ Setup incompleto. Ricontrollare la configurazione e riprovare.",
             C.YELLOW,

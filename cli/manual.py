@@ -214,11 +214,18 @@ def _run_manual_direct_serial(duty: int) -> None:
                 ser.reset_input_buffer()
                 ser.write(b"RPM\n")
                 ser.flush()
-                resp = ser.readline().decode("ascii", errors="replace").strip()
+                resp = ""
+                for _ in range(5):
+                    line = ser.readline().decode("ascii", errors="replace").strip()
+                    if line:
+                        resp = line
+                        break
+
                 pico_rpm = 0
-                if resp.startswith("RPM:"):
-                    parts = resp.split()
-                    pico_rpm = int(parts[0][4:])
+                if "RPM:" in resp:
+                    for part in resp.split():
+                        if part.startswith("RPM:"):
+                            pico_rpm = int(part[4:])
 
                 if is_tty:
                     sys.stdout.write(

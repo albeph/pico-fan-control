@@ -169,11 +169,16 @@ def main() -> None:
     _send(f"PWM:{PWM_FREQ_HZ}Hz PIN_PWM:GP{PWM_PIN} PIN_TACH:GP{TACH_PIN}")
 
     while True:
-        line = _uart_readline_nonblocking()
-        if line:
-            _process_command(line)
-        # Piccola pausa per non saturare la CPU
-        utime.sleep_ms(10)
+        try:
+            line = _uart_readline_nonblocking()
+            if line:
+                _process_command(line)
+            utime.sleep_ms(10)
+        except KeyboardInterrupt:
+            # Previene l'uscita nella REPL se arriva Ctrl+C sulla seriale
+            continue
+        except Exception:
+            utime.sleep_ms(20)
 
 
 if __name__ == "__main__":

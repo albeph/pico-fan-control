@@ -405,14 +405,21 @@ class FanDaemon:
     def _send_command(self, cmd: str) -> Optional[str]:
         """
         Invia un comando al Pico e legge la risposta.
-        Gestisce automaticamente la disconnessione e ritorna None se fallisce.
+        Svuota sempre il buffer di input prima dell'invio per evitare desincronizzazioni.
         """
         if not self.serial_conn:
             return None
         try:
+            self.serial_conn.reset_input_buffer()
             self.serial_conn.write((cmd + "\n").encode("ascii"))
             self.serial_conn.flush()
-            response = self.serial_conn.readline().decode("ascii", errors="replace").strip()
+            # Legge saltando eventuali righe vuote
+            response = ""
+            for _ in range(5):
+                line = self.serial_conn.readline().decode("ascii", errors="replace").strip()
+                if line:
+                    response = line
+                    break
             return response
         except (serial.serialutil.SerialException, OSError) as exc:
             logger.warning("Errore comunicazione seriale: %s", exc)
@@ -422,10 +429,11 @@ class FanDaemon:
     def _fetch_pico_rpm(self) -> int:
         """Richiede gli RPM correnti al Pico via seriale."""
         resp = self._send_command("RPM")
-        if resp and resp.startswith("RPM:"):
+        if resp and "RPM:" in resp:
             try:
-                rpm_str = resp.split()[0][4:]
-                return int(rpm_str)
+                for part in resp.split():
+                    if part.startswith("RPM:"):
+                        return int(part[4:])
             except (ValueError, IndexError):
                 pass
         return 0
@@ -433,10 +441,13 @@ class FanDaemon:
     def _set_duty(self, duty: int) -> bool:
         """
         Imposta il duty cycle della ventola esterna.
-        Restituisce True se il comando è stato inviato con successo.
+        Restituisce True se il comando è stato confermato con successo.
         """
         resp = self._send_command(f"SET {duty}")
-        return resp == "OK"
+        if resp and ("OK" in resp or "RPM:" in resp):
+            return True
+        logger.warning("Invio comando SET %d fallito, risposta ricevuta: %r", duty, resp)
+        return False
 
     # -------------------------------------------------------------------
     # Loop principale

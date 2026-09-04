@@ -166,18 +166,29 @@ Il sistema finale si compone di cinque moduli interconnessi:
 
 ---
 
+### Round 9: Personalizzazione Velocità Massima e Duty Cycle nel Setup (v1.1.2)
+- **Richiesta Utente:** Possibilità di configurare durante `pico-fan setup` la velocità massima della ventola (ad esempio impostando il 90% come massimo se a quella percentuale rende di più rispetto al 100%).
+- **Cosa è stato modificato:**
+  - **Wizard Setup (`cli/setup_wizard.py`):**
+    - Aggiunto lo step di collaudo al 90% nella sequenza di test iniziale (25%, 50%, 90%, 100%, 0%) per consentire la verifica visiva e strumentale dei giri.
+    - Nello Step 4 del wizard, ora viene chiesto esplicitamente all'utente di definire la velocità massima, media e minima in percentuale PWM (con valori predefiniti intelligenti letti dalla configurazione esistente o dai default di sistema).
+    - Salvataggio dei parametri `duty_high`, `duty_mid`, `duty_low` in `/etc/pico-fan/config.json`.
+- **Risultato:** Massima flessibilità d'uso per qualsiasi ventola PWM con caratteristiche non lineari. Release `v1.1.2` generata.
+
+---
+
 ## 4. Risultati Finali e Valutazione del Software
 
-Il software si trova attualmente nello stato stabile **`v1.1.1`**.
+Il software si trova attualmente nello stato stabile **`v1.1.2`**.
 
 ### Pacchetto Rilasciato:
-- **File pacchetto:** `pico-fan_1.1.1_all.deb`
+- **File pacchetto:** `pico-fan_1.1.2_all.deb`
 - **Comando installato nel sistema:**
   - `pico-fan`: Eseguibile unificato con i seguenti sottocomandi:
     - `pico-fan`: Mostra la guida completa e gli esempi.
     - `pico-fan status`: Diagnostica rapida dello stato e degli RPM.
     - `pico-fan set <0-100>` (o `manual`): Imposta velocità fissa e monitora RPM in tempo reale fino a `Ctrl+C`.
-    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale.
+    - `pico-fan setup`: Wizard interattivo per configurazione hardware iniziale e velocità PWM personalizzate.
     - `pico-fan daemon`: Demone di sincronizzazione (avviato in automatico da systemd).
     - `pico-fan version`: Versione del pacchetto installato.
 
@@ -187,6 +198,7 @@ Il software si trova attualmente nello stato stabile **`v1.1.1`**.
 | Controllo PWM 25kHz | ✅ Attivo | Gestito via MicroPython su RP2040 (GP15) |
 | Lettura Tachimetro Interrupt | ✅ Attivo | Conteggio ad alta precisione su RP2040 (GP14) |
 | Sincronizzazione RPM Sorgente | ✅ Attivo | Supporto ThinkPad ACPI e hwmon generici |
+| Configurazione Duty Massima/Media | ✅ Attivo | Definibile da wizard (es. 90% come massimo) |
 | Controllo Manuale Temporaneo | ✅ Attivo | `pico-fan set <0-100>` con monitoraggio live e ripristino su Ctrl+C |
 | Tolleranza ai Guasti USB | ✅ Attivo | Riconnessione automatica senza crash in caso di scollegamento |
 | Interfaccia CLI Unificata | ✅ Attivo | Solo `/usr/bin/pico-fan` con sottocomandi chiari |
@@ -199,7 +211,7 @@ Il software si trova attualmente nello stato stabile **`v1.1.1`**.
 
 ```bash
 # Installazione o aggiornamento del pacchetto (si avvia da solo)
-sudo dpkg -i pico-fan_1.1.1_all.deb
+sudo dpkg -i pico-fan_1.1.2_all.deb
 
 # Configurazione iniziale guidata
 sudo pico-fan setup

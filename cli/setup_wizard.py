@@ -216,6 +216,7 @@ def step_test_fan(device: PicoDevice) -> bool:
     test_sequences = [
         (25,  "25% - bassa velocità"),
         (50,  "50% - velocità media"),
+        (90,  "90% - velocità alta"),
         (100, "100% - velocità massima"),
         (0,   "0%  - spenta"),
     ]
@@ -346,45 +347,77 @@ def step_select_internal_fan() -> dict:
 # ===========================================================================
 
 def step_configure_thresholds() -> dict:
-    """Chiede all'utente di configurare le soglie RPM."""
-    separator("STEP 4 - Soglie di controllo")
+    """Chiede all'utente di configurare le soglie RPM e le velocità della ventola."""
+    separator("STEP 4 - Soglie e velocità ventola")
+
+    # Carica configurazione esistente se presente
+    curr = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE) as f:
+                curr = json.load(f)
+        except Exception:
+            pass
+
+    def_high_rpm  = curr.get("rpm_threshold_high", 4000)
+    def_mid_rpm   = curr.get("rpm_threshold_mid", 2500)
+    def_duty_high = curr.get("duty_high", 100)
+    def_duty_mid  = curr.get("duty_mid", 50)
+    def_duty_low  = curr.get("duty_low", 0)
 
     cprint(
-        "Configurazione curva ventola:\n"
-        "  RPM > soglia_alta  -> Ventola al 100%\n"
-        "  RPM >= soglia_mid  -> Ventola al 50%\n"
-        "  RPM < soglia_mid   -> Ventola spenta (0%)\n",
+        "Configurazione curva ventola e percentuali PWM:\n"
+        "  Puoi impostare sia le soglie RPM della ventola interna,\n"
+        "  sia la percentuale PWM della ventola esterna (es. 90% se gira più forte del 100%).\n",
         C.CYAN,
     )
 
-    high = ask("Soglia RPM alta  (default 4000)", "4000")
-    mid  = ask("Soglia RPM media (default 2500)", "2500")
+    cprint("Soglie RPM ventola interna:", C.CYAN, bold=True)
+    high = ask("Soglia RPM alta  (ventola a regime massimo)", str(def_high_rpm))
+    mid  = ask("Soglia RPM media (ventola a regime medio)", str(def_mid_rpm))
 
     try:
         high_val = int(high)
         mid_val  = int(mid)
     except ValueError:
         cprint("Valori non validi, uso i default.", C.YELLOW)
-        high_val, mid_val = 4000, 2500
+        high_val, mid_val = def_high_rpm, def_mid_rpm
 
     if high_val <= mid_val:
         cprint("⚠ La soglia alta deve essere > soglia media. Uso valori di default.", C.YELLOW)
-        high_val, mid_val = 4000, 2500
+        high_val, mid_val = def_high_rpm, def_mid_rpm
+
+    cprint("\nVelocità ventola esterna (Duty Cycle PWM 0-100%):", C.CYAN, bold=True)
+    cprint("  (Se la ventola rende di più al 90%, imposta 90 come massima)", C.DIM)
+    d_high = ask("Velocità MASSIMA % (default 100)", str(def_duty_high))
+    d_mid  = ask("Velocità MEDIA   % (default 50)",  str(def_duty_mid))
+    d_low  = ask("Velocità MINIMA  % (default 0)",   str(def_duty_low))
+
+    def _safe_duty(val_str: str, default_val: int) -> int:
+        try:
+            val = int(val_str)
+            return max(0, min(100, val))
+        except ValueError:
+            return default_val
+
+    duty_high_val = _safe_duty(d_high, def_duty_high)
+    duty_mid_val  = _safe_duty(d_mid, def_duty_mid)
+    duty_low_val  = _safe_duty(d_low, def_duty_low)
 
     cprint(
-        f"\n✓ Configurazione soglie:\n"
-        f"  > {high_val} RPM  → 100%\n"
-        f"  {mid_val}-{high_val} RPM → 50%\n"
-        f"  < {mid_val} RPM  → 0%",
+        f"\n✓ Configurazione soglie e velocità:\n"
+        f"  > {high_val} RPM  → {duty_high_val}% (massima)\n"
+        f"  {mid_val}-{high_val} RPM → {duty_mid_val}% (media)\n"
+        f"  < {mid_val} RPM  → {duty_low_val}% (minima / spenta)",
         C.GREEN,
     )
 
     return {
         "rpm_threshold_high": high_val,
         "rpm_threshold_mid":  mid_val,
-        "duty_high":          100,
-        "duty_mid":           50,
-        "duty_low":           0,
+        "duty_high":          duty_high_val,
+        "duty_mid":           duty_mid_val,
+        "duty_low":           duty_low_val,
     }
 
 

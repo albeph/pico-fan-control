@@ -5,6 +5,7 @@ After=network.target systemd-udev-settle.service
 Wants=systemd-udev-settle.service
 StartLimitIntervalSec=120
 StartLimitBurst=5
+ConditionPathExists=/etc/pico-fan/config.json
 
 # Riavvio automatico se il demone crasha (escluso stop manuale)
 [Service]
@@ -14,9 +15,6 @@ Group=root
 
 # Percorso dello script demone installato
 ExecStart=/usr/bin/pico-fan daemon
-
-# Percorso wizard (per comodità)
-ExecStartPre=/bin/bash -c '[ -f /etc/pico-fan/config.json ] || echo "WARN: /etc/pico-fan/config.json mancante, eseguire: pico-fan-setup"'
 
 # Riavvio automatico in caso di crash, con backoff esponenziale
 Restart=on-failure

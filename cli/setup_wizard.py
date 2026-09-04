@@ -199,8 +199,10 @@ def step_scan_devices() -> Optional[PicoDevice]:
 # STEP 2: Test ventola
 # ===========================================================================
 
-def step_test_fan(device: PicoDevice) -> bool:
-    """Test interattivo della ventola con duty cycle variabili."""
+def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
+    """Test interattivo della ventola con duty cycle variabili.
+    Restituisce (successo, duty_ottimale).
+    """
     separator("STEP 2 - Test ventola")
 
     cprint(
@@ -211,7 +213,7 @@ def step_test_fan(device: PicoDevice) -> bool:
 
     if not ask_yes_no("Procedere con il test?", default=True):
         cprint("Test saltato.", C.YELLOW)
-        return True
+        return True, 100
 
     test_sequences = [
         (25,  "25% - bassa velocità"),
@@ -219,6 +221,8 @@ def step_test_fan(device: PicoDevice) -> bool:
         (100, "100% - velocità massima"),
         (0,   "0%  - spenta"),
     ]
+
+    optimal_duty = 100   # default
 
     try:
         with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
@@ -254,11 +258,101 @@ def step_test_fan(device: PicoDevice) -> bool:
                 cprint(f"    Stato: {rpm_resp}", C.DIM)
 
         cprint("\n✓ Test completato.", C.GREEN, bold=True)
-        return ask_yes_no("La ventola ha risposto correttamente?", default=True)
+        ok = ask_yes_no("La ventola ha risposto correttamente?", default=True)
+        if not ok:
+            return False, 100
+
+        # -------------------------------------------------------------------
+        # Test interattivo per trovare il duty ottimale
+        # -------------------------------------------------------------------
+        cprint(
+            "\n  Alcune ventole raggiungono la velocità massima a un duty < 100%.\n"
+            "  Puoi testare diversi valori per trovare quello ottimale.",
+            C.DIM,
+        )
+
+        if ask_yes_no("Vuoi cercare il duty cycle ottimale per la velocità massima?", default=True):
+            cprint(
+                "\n  Testerò vari valori di duty. Ascolta / guarda gli RPM e\n"
+                "  conferma quale produce la velocità più alta.\n",
+                C.CYAN,
+            )
+
+            candidates = [70, 75, 80, 85, 90, 95, 100]
+            results: list[tuple[int, int]] = []   # (duty, rpm)
+
+            try:
+                with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
+                    time.sleep(0.8)
+                    ser.reset_input_buffer()
+
+                    for duty in candidates:
+                        cprint(f"\n  → Test {duty}% ...", C.CYAN)
+                        ser.reset_input_buffer()
+                        ser.write(f"SET {duty}\n".encode())
+                        ser.flush()
+                        time.sleep(0.3)
+                        ser.readline()          # consuma "OK"
+
+                        time.sleep(2.5)         # lascia stabilizzare gli RPM
+
+                        ser.reset_input_buffer()
+                        ser.write(b"RPM\n")
+                        ser.flush()
+                        time.sleep(0.3)
+                        rpm_raw = ser.readline().decode("ascii", errors="replace").strip()
+
+                        # Estrai valore numerico RPM dalla risposta "RPM:1234 DUTY:90%"
+                        rpm_val = 0
+                        for token in rpm_raw.split():
+                            if token.startswith("RPM:"):
+                                try:
+                                    rpm_val = int(token[4:])
+                                except ValueError:
+                                    pass
+                        results.append((duty, rpm_val))
+                        cprint(f"    {rpm_raw}  →  {rpm_val} RPM", C.GREEN if rpm_val > 0 else C.YELLOW)
+
+                    # Spegni ventola alla fine del test
+                    ser.write(b"SET 0\n")
+                    ser.flush()
+
+            except serial.serialutil.SerialException as exc:
+                cprint(f"\n  ⚠ Errore durante il test ottimale: {exc}", C.YELLOW)
+                return True, 100
+
+            # Trova il duty con RPM più alti
+            if results:
+                best_duty, best_rpm = max(results, key=lambda x: x[1])
+                cprint(
+                    f"\n  Risultati rilevati:\n"
+                    + "\n".join(
+                        f"  {'→ ' if d == best_duty else '   '}{d:>3}%  →  {r} RPM"
+                        + (" ← OTTIMALE" if d == best_duty else "")
+                        for d, r in results
+                    ),
+                    C.CYAN,
+                )
+
+                if ask_yes_no(
+                    f"\nUsare {best_duty}% come velocità massima della ventola?",
+                    default=True,
+                ):
+                    optimal_duty = best_duty
+                    cprint(f"✓ Duty massimo impostato a {optimal_duty}%.", C.GREEN, bold=True)
+                else:
+                    custom = ask("Inserisci manualmente il duty massimo (0-100)", str(best_duty))
+                    try:
+                        optimal_duty = max(0, min(100, int(custom)))
+                    except ValueError:
+                        optimal_duty = best_duty
+                    cprint(f"✓ Duty massimo impostato a {optimal_duty}%.", C.GREEN, bold=True)
+
+        return True, optimal_duty
 
     except serial.serialutil.SerialException as exc:
         cprint(f"\n✗ Errore durante il test: {exc}", C.RED)
-        return False
+        return False, 100
 
 
 # ===========================================================================
@@ -345,13 +439,13 @@ def step_select_internal_fan() -> dict:
 # STEP 4: Configurazione soglie
 # ===========================================================================
 
-def step_configure_thresholds() -> dict:
+def step_configure_thresholds(duty_high: int = 100) -> dict:
     """Chiede all'utente di configurare le soglie RPM."""
     separator("STEP 4 - Soglie di controllo")
 
     cprint(
-        "Configurazione curva ventola:\n"
-        "  RPM > soglia_alta  -> Ventola al 100%\n"
+        f"Configurazione curva ventola (duty massimo: {duty_high}%):\n"
+        f"  RPM > soglia_alta  -> Ventola al {duty_high}%\n"
         "  RPM >= soglia_mid  -> Ventola al 50%\n"
         "  RPM < soglia_mid   -> Ventola spenta (0%)\n",
         C.CYAN,
@@ -373,7 +467,7 @@ def step_configure_thresholds() -> dict:
 
     cprint(
         f"\n✓ Configurazione soglie:\n"
-        f"  > {high_val} RPM  → 100%\n"
+        f"  > {high_val} RPM  → {duty_high}%\n"
         f"  {mid_val}-{high_val} RPM → 50%\n"
         f"  < {mid_val} RPM  → 0%",
         C.GREEN,
@@ -382,7 +476,7 @@ def step_configure_thresholds() -> dict:
     return {
         "rpm_threshold_high": high_val,
         "rpm_threshold_mid":  mid_val,
-        "duty_high":          100,
+        "duty_high":          duty_high,
         "duty_mid":           50,
         "duty_low":           0,
     }
@@ -481,7 +575,7 @@ def main() -> None:
         sys.exit(1)
 
     # STEP 2: Test ventola
-    test_ok = step_test_fan(device)
+    test_ok, duty_high = step_test_fan(device)
     if not test_ok:
         cprint(
             "\n⚠ Il test ventola non è andato a buon fine.\n"
@@ -490,12 +584,13 @@ def main() -> None:
         )
         if not ask_yes_no("Continuare comunque?", default=False):
             sys.exit(1)
+        duty_high = 100   # fallback se test fallito
 
     # STEP 3: Ventola interna
     fan_config = step_select_internal_fan()
 
-    # STEP 4: Soglie
-    thresholds = step_configure_thresholds()
+    # STEP 4: Soglie (passa il duty ottimale trovato nel test)
+    thresholds = step_configure_thresholds(duty_high=duty_high)
 
     # STEP 5: Salvataggio
     saved = step_save_config(device, fan_config, thresholds)

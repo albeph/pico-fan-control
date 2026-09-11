@@ -3,7 +3,7 @@ name: Build and Release Debian Package
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - VERSION  # Una modifica alla versione deve creare una nuova release
 

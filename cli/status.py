@@ -11,26 +11,16 @@ import os
 import sys
 import json
 import socket
+from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
+
 
 SOCK_PATH = "/run/pico-fan.sock"
 
-# Colori terminale
-class Col:
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    CYAN = "\033[96m"
-    BOLD = "\033[1m"
-    RESET = "\033[0m"
 
 def main():
-    if not sys.stdout.isatty():
-        # Disabilita colori se non è un TTY
-        Col.GREEN = Col.YELLOW = Col.RED = Col.CYAN = Col.BOLD = Col.RESET = ""
-
     if not os.path.exists(SOCK_PATH):
-        print(f"{Col.BOLD}{Col.RED}ERRORE:{Col.RESET} Socket {SOCK_PATH} non trovato.")
-        print("Il demone pico-fan è in esecuzione? Controlla con: systemctl status pico-fan")
+        cprint(f"ERRORE: Socket {SOCK_PATH} non trovato.", RED, bold=True)
+        cprint("Il demone pico-fan è in esecuzione? Controlla con: systemctl status pico-fan")
         sys.exit(1)
 
     try:
@@ -52,7 +42,7 @@ def main():
         state = json.loads(data.decode("utf-8").strip())
         
     except Exception as exc:
-        print(f"{Col.BOLD}{Col.RED}ERRORE:{Col.RESET} Impossibile comunicare con il demone: {exc}")
+        cprint(f"ERRORE: Impossibile comunicare con il demone: {exc}", RED, bold=True)
         sys.exit(1)
 
     # Parsing dati
@@ -64,13 +54,13 @@ def main():
     version = state.get("version", "unknown")
 
     # Formattazione
-    status_str = f"{Col.GREEN}Connesso{Col.RESET}" if connected else f"{Col.RED}Scollegato{Col.RESET}"
+    status_str = f"{GREEN}Connesso{RESET}" if connected else f"{RED}Scollegato{RESET}"
     
-    print(f"\n{Col.BOLD}{Col.CYAN}=== pico-fan-control v{version} ==={Col.RESET}\n")
-    print(f" {Col.BOLD}Stato dispositivo:{Col.RESET}  {status_str} ({port})")
-    print(f" {Col.BOLD}Sorgente (Server):{Col.RESET}  {int_rpm} RPM")
-    print(f" {Col.BOLD}Destinazione (Pico):{Col.RESET} {ext_rpm} RPM  [Target PWM: {duty}%]")
-    print("")
+    cprint(f"\n=== pico-fan-control v{version} ===\n", CYAN, bold=True)
+    cprint(f" Stato dispositivo:  {status_str} ({port})", BOLD)
+    cprint(f" Sorgente (Server):  {int_rpm} RPM", BOLD)
+    cprint(f" Destinazione (Pico): {ext_rpm} RPM  [Target PWM: {duty}%]", BOLD)
+    print()
 
 if __name__ == "__main__":
     main()

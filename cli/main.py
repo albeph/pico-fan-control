@@ -12,10 +12,13 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
 
-# Aggiunge i path di libreria al sys.path
+
 SCRIPT_DIR  = Path(__file__).parent.resolve()
-DAEMON_DIR  = SCRIPT_DIR.parent / "daemon"
+DAEMON_DIR  = SCRIPT_DIR.parent / "daemon" #./pico-fan-control/daemon
+
+# Aggiunge entrambe le cartelle nei percorsi in cui Python cerca i moduli
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(DAEMON_DIR))
 
@@ -24,16 +27,6 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-# ---------------------------------------------------------------------------
-# Colori ANSI
-# ---------------------------------------------------------------------------
-_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-RESET  = "\033[0m"    if _COLOR else ""
-BOLD   = "\033[1m"    if _COLOR else ""
-CYAN   = "\033[96m"   if _COLOR else ""
-GREEN  = "\033[92m"   if _COLOR else ""
-YELLOW = "\033[93m"   if _COLOR else ""
-DIM    = "\033[2m"    if _COLOR else ""
 
 # ---------------------------------------------------------------------------
 # Help
@@ -45,30 +38,11 @@ HELP = f"""\
   pico-fan <comando> [opzioni]
 
 {BOLD}Comandi:{RESET}
-  {GREEN}daemon{RESET}       Avvia il demone di sincronizzazione RPM (usato da systemd)
+  {GREEN}daemon{RESET}       Avvia il demone di sincronizzazione RPM (usato da systemd o nel caso si voglia installare manualmente)
   {GREEN}setup{RESET}        Wizard interattivo di configurazione e test hardware
   {GREEN}status{RESET}       Mostra lo stato corrente del demone (RPM, duty, porta)
   {GREEN}manual <N>{RESET}   Imposta manualmente la ventola a N% e mostra RPM in tempo reale
   {GREEN}version{RESET}      Mostra la versione installata
-
-{BOLD}Esempi:{RESET}
-  {DIM}# Primo avvio:{RESET}
-  sudo pico-fan setup
-
-  {DIM}# Avvia il demone manualmente:{RESET}
-  sudo pico-fan daemon
-
-  {DIM}# Oppure tramite systemd (raccomandato):{RESET}
-  sudo systemctl start pico-fan
-
-  {DIM}# Diagnostica rapida:{RESET}
-  pico-fan status
-
-  {DIM}# Imposta manualmente la ventola al 75% e monitora:{RESET}
-  pico-fan manual 75
-
-  {DIM}# Versione installata:{RESET}
-  pico-fan version
 
 {BOLD}File di configurazione:{RESET}
   /etc/pico-fan/config.json
@@ -80,35 +54,31 @@ HELP = f"""\
 
 def _cmd_version() -> None:
     """Stampa la versione installata."""
-    version_file = Path("/usr/lib/pico-fan/VERSION")
-    if version_file.exists():
-        print(version_file.read_text().strip())
-    else:
-        print(__version__)
+    print(__version__)
 
 
 def _cmd_daemon() -> None:
     """Avvia il demone di sincronizzazione RPM."""
-    from fan_daemon import main
-    main()
+    from fan_daemon import main as fd_main
+    fd_main()
 
 
 def _cmd_setup() -> None:
     """Avvia il wizard di configurazione interattivo."""
-    from setup_wizard import main
-    main()
+    from setup_wizard import main as sw_main
+    sw_main()
 
 
 def _cmd_status() -> None:
     """Mostra lo stato corrente del demone via socket IPC."""
-    from status import main
-    main()
+    from status import main as status_main
+    status_main()
 
 
 def _cmd_manual() -> None:
     """Imposta manualmente la velocità della ventola e mostra gli RPM."""
-    from manual import main
-    main()
+    from manual import main as manual_main
+    manual_main()
 
 
 # ---------------------------------------------------------------------------
@@ -125,20 +95,20 @@ COMMANDS: dict[str, tuple[str, callable]] = {
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
-        print(HELP)
+        cprint(HELP)
         sys.exit(0)
 
     cmd = sys.argv[1].lower()
 
     if cmd not in COMMANDS:
-        print(f"{BOLD}pico-fan:{RESET} comando sconosciuto: '{cmd}'")
-        print(f"Esegui {BOLD}pico-fan --help{RESET} per la lista dei comandi disponibili.")
+        cprint(f"pico-fan: comando sconosciuto: '{cmd}'", RED, bold=True)
+        cprint("Esegui pico-fan --help per la lista dei comandi disponibili.", BOLD)
         sys.exit(1)
 
     # Rimuove il sottocomando da sys.argv così i moduli ricevono i propri argomenti
     sys.argv = [f"pico-fan {cmd}"] + sys.argv[2:]
 
-    _, fn = COMMANDS[cmd]
+    _, fn = COMMANDS[cmd]   #ad esempio se cmd == cmd_manual, allora fn() sarà come eseguire _cmd_manual
     fn()
 
 

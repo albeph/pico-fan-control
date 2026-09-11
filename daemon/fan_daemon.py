@@ -52,6 +52,7 @@ logger = logging.getLogger("fan_daemon")
 CONFIG_PATH     = "/etc/pico-fan/config.json"
 DEFAULT_CONFIG  = {
     "pico_serial_by_id":  "",
+    "internal_fan_type":  "ibm_acpi",
     "rpm_threshold_high": 4000,
     "rpm_threshold_mid":  2500,
     "duty_high":          100,
@@ -60,6 +61,7 @@ DEFAULT_CONFIG  = {
     "poll_interval":      2.0,
     "reconnect_interval": 5.0,
     "hwmon_path":         "",    # Auto-rilevato se vuoto
+    "hwmon_fan_path":      "",
     "ibm_fan_path":       "/proc/acpi/ibm/fan",
 }
 
@@ -75,6 +77,8 @@ def read_internal_rpm_ibm(ibm_fan_path: str) -> Optional[int]:
     Formato atteso: "speed:      2800"
     """
     try:
+        if not os.path.exists(ibm_fan_path):
+            return None
         with open(ibm_fan_path) as f:
             for line in f:
                 line = line.strip()
@@ -87,10 +91,21 @@ def read_internal_rpm_ibm(ibm_fan_path: str) -> Optional[int]:
     return None
 
 
-def read_internal_rpm_hwmon() -> Optional[int]:
+def read_internal_rpm_hwmon(fan_file: str | Path | None = None) -> Optional[int]:
     """
-    Lettura RPM da hwmon generica (es. /sys/class/hwmon/hwmon*/fan1_input).
+    Legge gli RPM da hwmon.
+
+    Se viene indicato un file, legge solo quello; altrimenti cerca il primo
+    valore disponibile in /sys/class/hwmon/hwmon*/fan*_input.
     """
+    if fan_file is not None:
+        try:
+            if not Path(fan_file).exists():
+                return None
+            return int(Path(fan_file).read_text().strip())
+        except (OSError, ValueError):
+            return None
+
     base = Path("/sys/class/hwmon")
     if not base.exists():
         return None
@@ -111,22 +126,22 @@ def read_internal_rpm_hwmon() -> Optional[int]:
 
 def read_internal_rpm(config: dict) -> int:
     """
-    Legge gli RPM della ventola interna usando la strategia migliore disponibile.
-    Priorità: /proc/acpi/ibm/fan -> hwmon generico -> 0 (fallback sicuro)
+    Legge gli RPM della ventola interna scelta
     """
+    selected_type = config.get("internal_fan_type", "ibm_acpi")
     ibm_path = config.get("ibm_fan_path", DEFAULT_CONFIG["ibm_fan_path"])
+    hwmon_path = config.get("hwmon_fan_path", config.get("hwmon_path", ""))
 
-    if os.path.exists(ibm_path):
+    # Prima prova esclusivamente la sorgente scelta dal wizard.
+    if selected_type == "hwmon":
+        rpm = read_internal_rpm_hwmon(hwmon_path)
+    else:
         rpm = read_internal_rpm_ibm(ibm_path)
-        if rpm is not None:
-            return rpm
 
-    rpm = read_internal_rpm_hwmon()
     if rpm is not None:
         return rpm
-
-    logger.warning("Impossibile leggere RPM interni, uso 0 come fallback")
-    return 0
+    else:
+        return 0
 
 
 # ===========================================================================

@@ -9,9 +9,6 @@ Wizard guidato che:
   4. Testa la ventola con vari duty cycle
   5. Scansiona le ventole interne disponibili (hwmon + /proc/acpi/ibm/fan)
   6. Salva la configurazione in /etc/pico-fan/config.json
-
-Autore:   pico-fan-control project
-Versione: 1.0.0
 """
 
 from __future__ import annotations
@@ -24,6 +21,8 @@ import shutil
 import signal
 from pathlib import Path
 from typing import Optional
+from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cformat, cprint, cwrite
+
 
 # Aggiungi il path del daemon per importare i moduli
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -38,15 +37,15 @@ try:
     )
     from version import __version__
 except ImportError as e:
-    print(f"Errore di importazione moduli daemon: {e}")
-    print("Assicurarsi che il pacchetto sia installato correttamente.")
+    cprint(f"Errore di importazione moduli daemon: {e}", RED)
+    cprint("Assicurarsi che il pacchetto sia installato correttamente.", RED)
     sys.exit(1)
 
 try:
     import serial
     import serial.serialutil
 except ImportError:
-    print("Errore: pyserial non installato. Eseguire: pip install pyserial")
+    cprint("Errore: pyserial non installato. Eseguire: pip install pyserial", RED)
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
@@ -56,67 +55,34 @@ CONFIG_DIR  = "/etc/pico-fan"
 CONFIG_FILE = "/etc/pico-fan/config.json"
 BAUDRATE    = 115200
 
-# ---------------------------------------------------------------------------
-# Colori ANSI per terminale
-# ---------------------------------------------------------------------------
-class C:
-    RESET  = "\033[0m"
-    BOLD   = "\033[1m"
-    RED    = "\033[91m"
-    GREEN  = "\033[92m"
-    YELLOW = "\033[93m"
-    BLUE   = "\033[94m"
-    CYAN   = "\033[96m"
-    WHITE  = "\033[97m"
-    DIM    = "\033[2m"
 
-
-def _supports_color() -> bool:
-    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
-        return False
-    term = os.environ.get("TERM", "")
-    if term == "dumb":
-        return False
-    return True
-
-
-def cprint(text: str, color: str = C.RESET, bold: bool = False) -> None:
-    if _supports_color():
-        prefix = (C.BOLD if bold else "") + color
-        print(f"{prefix}{text}{C.RESET}")
-    else:
-        print(text)
 
 
 def banner() -> None:
     cprint(rf"""
 ╔═══════════════════════════════════════════════════════════╗
-║         PICO FAN CONTROL - Setup Wizard v{__version__:<10}         ║
+║         PICO FAN CONTROL - Setup Wizard v{__version__:<10}    ║
 ║   Controllo ventola USB via Raspberry Pi Pico / RP2040    ║
 ╚═══════════════════════════════════════════════════════════╝
-""", C.CYAN, bold=True)
+""", CYAN, bold=True)
 
 
 def separator(title: str = "") -> None:
     width = 60
     if title:
         pad = (width - len(title) - 2) // 2
-        cprint(f"\n{'─' * pad} {title} {'─' * pad}\n", C.BLUE)
+        cprint(f"\n{'─' * pad} {title} {'─' * pad}\n", CYAN)
     else:
-        cprint("─" * width, C.DIM)
+        cprint("─" * width, DIM)
 
 
 def ask(prompt: str, default: str = "") -> str:
-    """Input interattivo con valore di default."""
+    """Input interattivo con supporto al valore di default."""
     if default:
         full_prompt = f"{prompt} [{default}]: "
     else:
         full_prompt = f"{prompt}: "
-    # Usa print semplice per evitare escape ANSI nell'input interattivo
-    if _supports_color():
-        sys.stdout.write(f"{C.BOLD}{C.WHITE}{full_prompt}{C.RESET}")
-    else:
-        sys.stdout.write(full_prompt)
+    cwrite(full_prompt, WHITE, bold=True)
     sys.stdout.flush()
     try:
         answer = input().strip()
@@ -136,7 +102,7 @@ def ask_yes_no(prompt: str, default: bool = True) -> bool:
 def pick_from_list(items: list, prompt: str = "Scelta") -> Optional[int]:
     """Mostra una lista numerata e chiede all'utente di scegliere."""
     for i, item in enumerate(items, 1):
-        cprint(f"  [{i}] {item}", C.WHITE)
+        cprint(f"  [{i}] {item}", WHITE)
     answer = ask(f"\n{prompt} (1-{len(items)})", "1")
     try:
         idx = int(answer) - 1
@@ -144,7 +110,7 @@ def pick_from_list(items: list, prompt: str = "Scelta") -> Optional[int]:
             return idx
     except ValueError:
         pass
-    cprint("Scelta non valida, uso la prima opzione.", C.YELLOW)
+    cprint("Scelta non valida, uso la prima opzione.", YELLOW)
     return 0
 
 
@@ -155,7 +121,7 @@ def pick_from_list(items: list, prompt: str = "Scelta") -> Optional[int]:
 def step_scan_devices() -> Optional[PicoDevice]:
     """Scansiona le porte seriali e fa scegliere il Pico da usare."""
     separator("STEP 1 - Scansione hardware")
-    cprint("Ricerca dispositivi Pico/RP2040 in /dev/serial/by-id/ ...", C.CYAN)
+    cprint("Ricerca dispositivi Pico/RP2040 in /dev/serial/by-id/ ...", CYAN)
 
     devices = scan_devices(probe=True)
 
@@ -166,20 +132,20 @@ def step_scan_devices() -> Optional[PicoDevice]:
             "  - Il cavo USB sia collegato\n"
             "  - Il firmware main.py sia caricato sul Pico\n"
             "  - Il driver cdc_acm sia caricato (modprobe cdc_acm)",
-            C.RED,
+            RED,
         )
         if not ask_yes_no("\nVuoi riprovare la scansione?", default=True):
             return None
         return step_scan_devices()
 
-    cprint(f"\n✓ Trovati {len(devices)} dispositivo/i:\n", C.GREEN, bold=True)
+    cprint(f"\n✓ Trovati {len(devices)} dispositivo/i:\n", GREEN, bold=True)
 
     descriptions = []
     for dev in devices:
         status = (
-            f"✓ {C.GREEN}Risponde{C.RESET} (RPM={dev.rpm}, DUTY={dev.duty}%)"
+            f"✓ {cformat('Risponde', GREEN)} (RPM={dev.rpm}, DUTY={dev.duty}%)"
             if dev.responsive
-            else f"✗ {C.RED}Non risponde{C.RESET}"
+            else f"✗ {cformat('Non risponde', RED)}"
         )
         descriptions.append(
             f"{dev.hw_id}\n"
@@ -188,7 +154,7 @@ def step_scan_devices() -> Optional[PicoDevice]:
 
     if len(devices) == 1:
         dev = devices[0]
-        cprint(f"  Dispositivo selezionato automaticamente: {dev.real_path}", C.GREEN)
+        cprint(f"  Dispositivo selezionato automaticamente: {dev.real_path}", GREEN)
         return dev
 
     idx = pick_from_list(descriptions, "Seleziona il dispositivo da usare")
@@ -208,11 +174,11 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
     cprint(
         f"Test della ventola su {device.real_path}\n"
         "La ventola verrà fatta girare a varie velocità.",
-        C.CYAN,
+        CYAN,
     )
 
     if not ask_yes_no("Procedere con il test?", default=True):
-        cprint("Test saltato.", C.YELLOW)
+        cprint("Test saltato.", YELLOW)
         return True, 100
 
     test_sequences = [
@@ -222,16 +188,17 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
         (0,   "0%  - spenta"),
     ]
 
-    optimal_duty = 100   # default
+    def_optimal_duty = 100   # default
 
     try:
+        # Apre la porta seriale; al termine del blocco viene chiusa automaticamente.
         with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
             # Aspetta che il Pico sia pronto (reset CDC) e svuota il banner di avvio
             time.sleep(1.0)
             ser.reset_input_buffer()
 
             for duty, desc in test_sequences:
-                cprint(f"\n  → Imposto {desc} ...", C.CYAN)
+                cprint(f"\n  → Imposto {desc} ...", CYAN)
 
                 # Svuota buffer prima di inviare il comando
                 ser.reset_input_buffer()
@@ -243,9 +210,9 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
                 resp = ser.readline().decode("ascii", errors="replace").strip()
 
                 if resp == "OK":
-                    cprint(f"    ✓ Risposta: {resp}", C.GREEN)
+                    cprint(f"    ✓ Risposta: {resp}", GREEN)
                 else:
-                    cprint(f"    Risposta inattesa: '{resp}'", C.YELLOW)
+                    cprint(f"    Risposta inattesa: '{resp}'", YELLOW)
 
                 time.sleep(2.0)
 
@@ -255,9 +222,9 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
                 ser.flush()
                 time.sleep(0.3)
                 rpm_resp = ser.readline().decode("ascii", errors="replace").strip()
-                cprint(f"    Stato: {rpm_resp}", C.DIM)
+                cprint(f"    Stato: {rpm_resp}", DIM)
 
-        cprint("\n✓ Test completato.", C.GREEN, bold=True)
+        cprint("\n✓ Test completato.", GREEN, bold=True)
         ok = ask_yes_no("La ventola ha risposto correttamente?", default=True)
         if not ok:
             return False, 100
@@ -268,14 +235,14 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
         cprint(
             "\n  Alcune ventole raggiungono la velocità massima a un duty < 100%.\n"
             "  Puoi testare diversi valori per trovare quello ottimale.",
-            C.DIM,
+            DIM,
         )
 
         if ask_yes_no("Vuoi cercare il duty cycle ottimale per la velocità massima?", default=True):
             cprint(
                 "\n  Testerò vari valori di duty. Ascolta / guarda gli RPM e\n"
                 "  conferma quale produce la velocità più alta.\n",
-                C.CYAN,
+                CYAN,
             )
 
             candidates = [70, 75, 80, 85, 90, 95, 100]
@@ -287,7 +254,7 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
                     ser.reset_input_buffer()
 
                     for duty in candidates:
-                        cprint(f"\n  → Test {duty}% ...", C.CYAN)
+                        cprint(f"\n  → Test {duty}% ...", CYAN)
                         ser.reset_input_buffer()
                         ser.write(f"SET {duty}\n".encode())
                         ser.flush()
@@ -311,14 +278,14 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
                                 except ValueError:
                                     pass
                         results.append((duty, rpm_val))
-                        cprint(f"    {rpm_raw}  →  {rpm_val} RPM", C.GREEN if rpm_val > 0 else C.YELLOW)
+                        cprint(f"    {rpm_raw}  →  {rpm_val} RPM", GREEN if rpm_val > 0 else YELLOW)
 
                     # Spegni ventola alla fine del test
                     ser.write(b"SET 0\n")
                     ser.flush()
 
             except serial.serialutil.SerialException as exc:
-                cprint(f"\n  ⚠ Errore durante il test ottimale: {exc}", C.YELLOW)
+                cprint(f"\n  ⚠ Errore durante il test ottimale: {exc}", YELLOW)
                 return True, 100
 
             # Trova il duty con RPM più alti
@@ -331,27 +298,27 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
                         + (" ← OTTIMALE" if d == best_duty else "")
                         for d, r in results
                     ),
-                    C.CYAN,
+                    CYAN,
                 )
 
                 if ask_yes_no(
                     f"\nUsare {best_duty}% come velocità massima della ventola?",
                     default=True,
                 ):
-                    optimal_duty = best_duty
-                    cprint(f"✓ Duty massimo impostato a {optimal_duty}%.", C.GREEN, bold=True)
+                    def_optimal_duty = best_duty
+                    cprint(f"✓ Duty massimo impostato a {def_optimal_duty}%.", GREEN, bold=True)
                 else:
                     custom = ask("Inserisci manualmente il duty massimo (0-100)", str(best_duty))
                     try:
-                        optimal_duty = max(0, min(100, int(custom)))
+                        def_optimal_duty = max(0, min(100, int(custom)))
                     except ValueError:
-                        optimal_duty = best_duty
-                    cprint(f"✓ Duty massimo impostato a {optimal_duty}%.", C.GREEN, bold=True)
+                        def_optimal_duty = best_duty
+                    cprint(f"✓ Duty massimo impostato a {def_optimal_duty}%.", GREEN, bold=True)
 
-        return True, optimal_duty
+        return True, def_optimal_duty
 
     except serial.serialutil.SerialException as exc:
-        cprint(f"\n✗ Errore durante il test: {exc}", C.RED)
+        cprint(f"\n✗ Errore durante il test: {exc}", RED)
         return False, 100
 
 
@@ -361,48 +328,44 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
 
 def _discover_internal_fans() -> list[dict]:
     """
-    Raccoglie le ventole interne disponibili da hwmon e /proc/acpi/ibm/fan.
+    Raccoglie le ventole interne disponibili da hwmon e /proc/acpi/ibm/fan (Nel caso siano dispositivi Thinkpad/Lenovo).
     Restituisce lista di dict con 'label', 'type', 'path', 'rpm'.
     """
     fans = []
 
     # Cerca in /proc/acpi/ibm/fan (ThinkPad)
-    ibm_fan = "/proc/acpi/ibm/fan"
-    if os.path.exists(ibm_fan):
-        rpm = read_internal_rpm_ibm(ibm_fan)
+    ibm_fan = Path("/proc/acpi/ibm/fan")
+    if ibm_fan.exists():
+        rpm = read_internal_rpm_ibm(str(ibm_fan))
         fans.append({
             "label": f"ThinkPad ACPI Fan  [{ibm_fan}]  RPM={rpm or 'N/A'}",
             "type":  "ibm_acpi",
-            "path":  ibm_fan,
+            "path":  str(ibm_fan),
             "rpm":   rpm or 0,
         })
 
     # Cerca in /sys/class/hwmon/*/fan*_input
-    base = Path("/sys/class/hwmon")
-    if base.exists():
-        for hwmon_dir in sorted(base.iterdir()):
+    hwmon_base = Path("/sys/class/hwmon")
+    if hwmon_base.exists():
+        for hwmon_dir in sorted(hwmon_base.iterdir()):
             try:
                 hw_name = (hwmon_dir / "name").read_text().strip()
             except OSError:
                 hw_name = hwmon_dir.name
 
-            if hw_name == "pico_fan":
-                continue    # Salta il nostro vecchio modulo se ancora presente
-
             for fan_file in sorted(hwmon_dir.glob("fan*_input")):
-                try:
-                    rpm = int(fan_file.read_text().strip())
-                    fans.append({
-                        "label": (
-                            f"hwmon:{hw_name} {fan_file.name}"
-                            f"  [{fan_file}]  RPM={rpm}"
-                        ),
-                        "type":  "hwmon",
-                        "path":  str(fan_file),
-                        "rpm":   rpm,
-                    })
-                except (OSError, ValueError):
+                rpm = read_internal_rpm_hwmon(fan_file)
+                if rpm is None:
                     continue
+                fans.append({
+                    "label": (
+                        f"hwmon:{hw_name} {fan_file.name}"
+                        f"  [{fan_file}]  RPM={rpm}"
+                    ),
+                    "type":  "hwmon",
+                    "path":  str(fan_file),
+                    "rpm":   rpm,
+                })
 
     return fans
 
@@ -410,7 +373,7 @@ def _discover_internal_fans() -> list[dict]:
 def step_select_internal_fan() -> dict:
     """Permette all'utente di scegliere la ventola interna da monitorare."""
     separator("STEP 3 - Selezione ventola interna")
-    cprint("Ricerca ventole interne disponibili ...\n", C.CYAN)
+    cprint("Ricerca ventole interne disponibili ...\n", CYAN)
 
     fans = _discover_internal_fans()
 
@@ -420,7 +383,7 @@ def step_select_internal_fan() -> dict:
             "  Sarà usato /proc/acpi/ibm/fan come default.\n"
             "  Installare lm-sensors (apt install lm-sensors) e\n"
             "  eseguire 'sensors-detect' per abilitare i moduli.",
-            C.YELLOW,
+            YELLOW,
         )
         return {
             "type": "ibm_acpi",
@@ -431,7 +394,7 @@ def step_select_internal_fan() -> dict:
     labels = [f["label"] for f in fans]
     idx = pick_from_list(labels, "Seleziona la ventola interna da monitorare")
     selected = fans[idx]
-    cprint(f"\n✓ Selezionata: {selected['label']}", C.GREEN)
+    cprint(f"\n✓ Selezionata: {selected['label']}", GREEN)
     return selected
 
 
@@ -448,7 +411,7 @@ def step_configure_thresholds(duty_high: int = 100) -> dict:
         f"  RPM > soglia_alta  -> Ventola al {duty_high}%\n"
         "  RPM >= soglia_mid  -> Ventola al 50%\n"
         "  RPM < soglia_mid   -> Ventola spenta (0%)\n",
-        C.CYAN,
+        CYAN,
     )
 
     high = ask("Soglia RPM alta  (default 4000)", "4000")
@@ -458,11 +421,11 @@ def step_configure_thresholds(duty_high: int = 100) -> dict:
         high_val = int(high)
         mid_val  = int(mid)
     except ValueError:
-        cprint("Valori non validi, uso i default.", C.YELLOW)
+        cprint("Valori non validi, uso i default.", YELLOW)
         high_val, mid_val = 4000, 2500
 
     if high_val <= mid_val:
-        cprint("⚠ La soglia alta deve essere > soglia media. Uso valori di default.", C.YELLOW)
+        cprint("⚠ La soglia alta deve essere > soglia media. Uso valori di default.", YELLOW)
         high_val, mid_val = 4000, 2500
 
     cprint(
@@ -470,7 +433,7 @@ def step_configure_thresholds(duty_high: int = 100) -> dict:
         f"  > {high_val} RPM  → {duty_high}%\n"
         f"  {mid_val}-{high_val} RPM → 50%\n"
         f"  < {mid_val} RPM  → 0%",
-        C.GREEN,
+        GREEN,
     )
 
     return {
@@ -496,6 +459,7 @@ def step_save_config(
 
     config = {
         "pico_serial_by_id":  device.by_id_path,
+        "internal_fan_type": fan_config.get("type", "ibm_acpi"),
         "ibm_fan_path":       fan_config.get("path", "/proc/acpi/ibm/fan")
                               if fan_config.get("type") == "ibm_acpi"
                               else "/proc/acpi/ibm/fan",
@@ -507,11 +471,11 @@ def step_save_config(
         **thresholds,
     }
 
-    cprint("Configurazione da salvare:", C.CYAN)
+    cprint("Configurazione da salvare:", CYAN)
     print(json.dumps(config, indent=2))
 
     if not ask_yes_no("\nConfermare e salvare?", default=True):
-        cprint("Configurazione non salvata.", C.YELLOW)
+        cprint("Configurazione non salvata.", YELLOW)
         return False
 
     # Crea la directory se non esiste (richiede root)
@@ -521,7 +485,7 @@ def step_save_config(
         cprint(
             f"✗ Permessi insufficienti per creare {CONFIG_DIR}.\n"
             f"  Eseguire il wizard come root: sudo pico-fan-setup",
-            C.RED,
+            RED,
         )
         return False
 
@@ -529,17 +493,17 @@ def step_save_config(
     if os.path.exists(CONFIG_FILE):
         backup = CONFIG_FILE + ".bak"
         shutil.copy2(CONFIG_FILE, backup)
-        cprint(f"  Backup configurazione precedente: {backup}", C.DIM)
+        cprint(f"  Backup configurazione precedente: {backup}", DIM)
 
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
             f.write("\n")
         os.chmod(CONFIG_FILE, 0o644)
-        cprint(f"\n✓ Configurazione salvata in {CONFIG_FILE}", C.GREEN, bold=True)
+        cprint(f"\n✓ Configurazione salvata in {CONFIG_FILE}", GREEN, bold=True)
         return True
     except OSError as exc:
-        cprint(f"✗ Errore salvataggio: {exc}", C.RED)
+        cprint(f"✗ Errore salvataggio: {exc}", RED)
         if backup and os.path.exists(backup):
             shutil.copy2(backup, CONFIG_FILE)
         return False
@@ -552,7 +516,7 @@ def step_save_config(
 def main() -> None:
     """Esegue il wizard completo di configurazione."""
     # Gestione SIGINT pulita
-    signal.signal(signal.SIGINT, lambda *_: (cprint("\n\nWizard interrotto.", C.YELLOW), sys.exit(0)))
+    signal.signal(signal.SIGINT, lambda *_: (cprint("\n\nWizard interrotto.", YELLOW), sys.exit(0)))
 
     banner()
 
@@ -561,17 +525,17 @@ def main() -> None:
         "Avrai bisogno di:\n"
         "  • Il Raspberry Pi Pico collegato via USB con il firmware main.py caricato\n"
         "  • Privilegi root per salvare la configurazione\n",
-        C.DIM,
+        DIM,
     )
 
     if not ask_yes_no("Continuare?", default=True):
-        cprint("Uscita.", C.YELLOW)
+        cprint("Uscita.", YELLOW)
         sys.exit(0)
 
     # STEP 1: Scansione e selezione dispositivo
     device = step_scan_devices()
     if device is None:
-        cprint("\n✗ Nessun dispositivo selezionato. Uscita.", C.RED)
+        cprint("\n✗ Nessun dispositivo selezionato. Uscita.", RED)
         sys.exit(1)
 
     # STEP 2: Test ventola
@@ -580,7 +544,7 @@ def main() -> None:
         cprint(
             "\n⚠ Il test ventola non è andato a buon fine.\n"
             "  Verificare il firmware e il cablaggio prima di continuare.",
-            C.YELLOW,
+            YELLOW,
         )
         if not ask_yes_no("Continuare comunque?", default=False):
             sys.exit(1)
@@ -604,13 +568,13 @@ def main() -> None:
             "  1. Avviare il demone:          sudo systemctl start pico-fan\n"
             "  2. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
             "  3. Verificare lo stato:        pico-fan-status\n",
-            C.GREEN,
+            GREEN,
             bold=True,
         )
     else:
         cprint(
             "⚠ Setup incompleto. Ricontrollare la configurazione e riprovare.",
-            C.YELLOW,
+            YELLOW,
         )
 
 

@@ -42,38 +42,11 @@ def _read_version_file() -> str | None:
     return None
 
 
-def _read_git_version() -> str | None:
-    """
-    Interroga git per ottenere la versione dall'ultimo tag annotato.
-    Formato restituito: "1.2.3" o "1.2.3-5-gabcdef" (post-tag commits).
-    Restituisce None se git non è disponibile o il repo non ha tag.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--always", "--dirty=+dirty"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            cwd=str(_THIS_DIR),
-        )
-        if result.returncode == 0:
-            tag = result.stdout.strip().lstrip("v")
-            if tag:
-                return tag
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
-    return None
-
 
 def _resolve_version() -> str:
     """Risolve la versione usando la strategia a cascata."""
     # 1. File VERSION (installato o nel repo)
     v = _read_version_file()
-    if v:
-        return v
-
-    # 2. Tag git
-    v = _read_git_version()
     if v:
         return v
 

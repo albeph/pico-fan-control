@@ -7,42 +7,16 @@ Interroga il demone in esecuzione tramite socket UNIX e stampa
 una tabella riassuntiva formattata.
 """
 
-import os
 import sys
-import json
-import socket
 from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
-
-
-SOCK_PATH = "/run/pico-fan.sock"
+from ipc_adapter import IpcAdapter, SOCK_PATH
 
 
 def main():
-    if not os.path.exists(SOCK_PATH):
-        cprint(f"ERRORE: Socket {SOCK_PATH} non trovato.", RED, bold=True)
+    state = IpcAdapter(timeout=2.0).get_status()
+    if state is None:
+        cprint(f"ERRORE: Impossibile comunicare con il socket {SOCK_PATH}.", RED, bold=True)
         cprint("Il demone pico-fan è in esecuzione? Controlla con: systemctl status pico-fan")
-        sys.exit(1)
-
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(2.0)
-            s.connect(SOCK_PATH)
-            
-            # Leggi risposta (fino a newline)
-            data = b""
-            while b"\n" not in data:
-                chunk = s.recv(1024)
-                if not chunk:
-                    break
-                data += chunk
-                
-        if not data:
-            raise ValueError("Risposta vuota dal demone")
-            
-        state = json.loads(data.decode("utf-8").strip())
-        
-    except Exception as exc:
-        cprint(f"ERRORE: Impossibile comunicare con il demone: {exc}", RED, bold=True)
         sys.exit(1)
 
     # Parsing dati

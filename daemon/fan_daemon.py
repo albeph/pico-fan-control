@@ -20,11 +20,9 @@ from __future__ import annotations
 import os
 import sys
 import json
-import time
 import socket
 import signal
 import logging
-import logging.handlers
 import threading
 from pathlib import Path
 
@@ -36,10 +34,10 @@ except ImportError:
     __version__ = "unknown"
 
 try:
-    import serial
+    from pico_adapter import PicoAdapter
     import serial.serialutil
 except ImportError:
-    raise SystemExit("Errore: pyserial non installato. pip install pyserial")
+    raise SystemExit("Errore: pyserial o pico_adapter non disponibile")
 
 # ---------------------------------------------------------------------------
 # Configurazione logging
@@ -60,13 +58,10 @@ DEFAULT_CONFIG  = {
     "duty_low":           0,
     "poll_interval":      2.0,
     "reconnect_interval": 5.0,
-    "hwmon_path":         "",    # Auto-rilevato se vuoto
-    "hwmon_fan_path":      "",
+    "hwmon_fan_path":      "",    # Auto-rilevato se vuoto
     "ibm_fan_path":       "/proc/acpi/ibm/fan",
 }
 
-BAUDRATE              = 115200
-SERIAL_TIMEOUT        = 2.0
 # ===========================================================================
 # Lettura RPM ventola interna
 # ===========================================================================
@@ -130,7 +125,7 @@ def read_internal_rpm(config: dict) -> int:
     """
     selected_type = config.get("internal_fan_type", "ibm_acpi")
     ibm_path = config.get("ibm_fan_path", DEFAULT_CONFIG["ibm_fan_path"])
-    hwmon_path = config.get("hwmon_fan_path", config.get("hwmon_path", ""))
+    hwmon_path = config.get("hwmon_fan_path", "")
 
     # Prima prova esclusivamente la sorgente scelta dal wizard.
     if selected_type == "hwmon":
@@ -180,7 +175,7 @@ class FanDaemon:
         self.config          = config
         self.running         = True
         self.current_duty    = -1          # -1 = non ancora inviato
-        self.serial_conn: Optional[serial.Serial] = None
+        self.pico_adapter: Optional[PicoAdapter] = None
         self.pico_port: str  = ""
         self.pico_rpm: int   = 0
         self.internal_rpm: int = 0
@@ -206,7 +201,7 @@ class FanDaemon:
             self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.server_sock.bind(self.sock_path)
             self.server_sock.listen(5)
-            os.chmod(self.sock_path, 0o666)  # Permette lettura a tutti gli utenti
+            os.chmod(self.sock_path, 0o600)  # Accessibile solo al demone e a root
         except Exception as exc:
             logger.error("Impossibile creare socket IPC: %s", exc)
             return
@@ -248,7 +243,7 @@ class FanDaemon:
                             # STATUS (o nessun comando): risponde con lo stato corrente
                             with self._lock:
                                 state = {
-                                    "connected":    self.serial_conn is not None,
+                                    "connected":    self.pico_adapter is not None and self.pico_adapter.connected,
                                     "pico_port":    self.pico_port,
                                     "internal_rpm": self.internal_rpm,
                                     "pico_rpm":     self.pico_rpm,
@@ -320,15 +315,9 @@ class FanDaemon:
                 logger.debug("Device %s non presente", real_path)
                 return False
 
-            conn = serial.Serial(
-                real_path,
-                baudrate=BAUDRATE,
-                timeout=SERIAL_TIMEOUT,
-            )
-            time.sleep(0.5)         # Attende CDC ready
-            conn.reset_input_buffer()
-
-            self.serial_conn = conn
+            adapter = PicoAdapter(real_path)
+            adapter.connect()
+            self.pico_adapter = adapter
             self.pico_port   = real_path
             logger.info("Connesso a Pico su %s", real_path)
             return True
@@ -339,49 +328,10 @@ class FanDaemon:
 
     def _disconnect(self) -> None:
         """Chiude la connessione seriale in modo sicuro."""
-        if self.serial_conn:
-            try:
-                self.serial_conn.close()
-            except Exception:  # pylint: disable=broad-except
-                pass
-            self.serial_conn = None
+        if self.pico_adapter:
+            self.pico_adapter.disconnect()
+            self.pico_adapter = None
             logger.info("Connessione seriale chiusa")
-
-    def _send_command(self, cmd: str) -> Optional[str]:
-        """
-        Invia un comando al Pico e legge la risposta.
-        Gestisce automaticamente la disconnessione e ritorna None se fallisce.
-        """
-        if not self.serial_conn:
-            return None
-        try:
-            self.serial_conn.write((cmd + "\n").encode("ascii"))
-            self.serial_conn.flush()
-            response = self.serial_conn.readline().decode("ascii", errors="replace").strip()
-            return response
-        except (serial.serialutil.SerialException, OSError) as exc:
-            logger.warning("Errore comunicazione seriale: %s", exc)
-            self._disconnect()
-            return None
-
-    def _fetch_pico_rpm(self) -> int:
-        """Richiede gli RPM correnti al Pico via seriale."""
-        resp = self._send_command("RPM")
-        if resp and resp.startswith("RPM:"):
-            try:
-                rpm_str = resp.split()[0][4:]
-                return int(rpm_str)
-            except (ValueError, IndexError):
-                pass
-        return 0
-
-    def _set_duty(self, duty: int) -> bool:
-        """
-        Imposta il duty cycle della ventola esterna.
-        Restituisce True se il comando è stato inviato con successo.
-        """
-        resp = self._send_command(f"SET {duty}")
-        return resp == "OK"
 
     # -------------------------------------------------------------------
     # Loop principale
@@ -405,7 +355,7 @@ class FanDaemon:
             # ----------------------------------------------------------------
             # Fase 1: Connessione / riconnessione
             # ----------------------------------------------------------------
-            if self.serial_conn is None:
+            if self.pico_adapter is None or not self.pico_adapter.connected:
                 connected = self._try_connect()
                 if not connected:
                     logger.info(
@@ -441,7 +391,7 @@ class FanDaemon:
                     self.internal_rpm,
                     " [MANUALE]" if in_manual else "",
                 )
-                success = self._set_duty(target_duty)
+                success = self.pico_adapter.set_duty(target_duty)
                 if success:
                     self.current_duty = target_duty
                 else:
@@ -450,7 +400,8 @@ class FanDaemon:
             # ----------------------------------------------------------------
             # Fase 4: Lettura RPM ventola esterna
             # ----------------------------------------------------------------
-            self.pico_rpm = self._fetch_pico_rpm()
+            pico_rpm, _ = self.pico_adapter.fetch_rpm()
+            self.pico_rpm = pico_rpm or 0
             logger.debug("RPM ventola esterna: %d", self.pico_rpm)
 
             self._sleep_interruptible(poll_interval)

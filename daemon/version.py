@@ -5,11 +5,8 @@ Tutti i moduli Python importano __version__ da qui.
 
 Strategia di risoluzione (in ordine di priorità):
   1. File VERSION installato in /usr/lib/pico-fan/VERSION  (runtime, .deb)
-  2. File VERSION nella root del repository               (sviluppo locale)
-  3. Tag git più recente (git describe --tags)             (sviluppo locale)
   4. "0.0.0+unknown"                                       (fallback sicuro)
 
-Autore:   pico-fan-control project
 """
 
 from __future__ import annotations

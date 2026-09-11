@@ -21,10 +21,12 @@ pico-fan-control/
 ├── daemon/                   # Servizio backend in ascolto sul sistema Host
 │   ├── fan_daemon.py         # Demone principale (loop RPM, soglie hysteresis, server IPC)
 │   ├── hardware_detector.py  # Scansione e probe dispositivi RP2040 in /dev/serial/by-id/
+│   ├── pico_adapter.py       # Adapter condiviso del protocollo seriale Pico
 │   └── version.py            # Utility per la risoluzione dinamica della versione runtime
 │
 ├── cli/                      # Strumenti di interfaccia a riga di comando (User Tools)
 │   ├── main.py               # Eseguibile pico-fan: dispatcher unificato con sottocomandi
+│   ├── ipc_adapter.py        # Adapter condiviso per il socket IPC del demone
 │   ├── setup_wizard.py       # Wizard interattivo di configurazione hardware e soglie (pico-fan setup)
 │   ├── status.py             # Client IPC per lo stato in tempo reale (pico-fan status)
 │   └── manual.py             # Controllo manuale temporaneo della velocità ventola (pico-fan manual)
@@ -61,11 +63,13 @@ Contiene il codice destinato al microcontrollore Raspberry Pi Pico (RP2040).
 Contiene il cuore del servizio di backend in esecuzione sul server/host Linux.
 * **`fan_daemon.py`**: Demone principale. Legge gli RPM sorgente (`/proc/acpi/ibm/fan` o `hwmon`), calcola la curva di risposta della ventola (0%, 50%, 100%), controlla la seriale e gestisce un server UNIX Domain Socket su `/run/pico-fan.sock` per fornire lo stato alla CLI. Usa `threading.Event` per consumo CPU < 0.1%.
 * **`hardware_detector.py`**: Modulo per scansionare `/dev/serial/by-id/` ed identificare in modo univoco le schede Pico collegate.
+* **`pico_adapter.py`**: Adapter condiviso per connessione, disconnessione, comandi `SET`/`RPM` e parsing delle risposte seriali del Pico.
 * **`version.py`**: Modulo helper per risolvere la versione del software a runtime leggendo da Git o dal file `VERSION`.
 
 ### 3. `cli/`
 Contiene i tool a riga di comando rivolti all'utente, richiamabili tramite l'eseguibile unico `pico-fan`:
 * **`main.py`**: Dispatcher principale. Smista gli argomenti ai sottocomandi (`setup`, `status`, `manual`, `version`, `daemon`) o mostra l'help contestuale.
+* **`ipc_adapter.py`**: Adapter condiviso per comunicare con il demone tramite socket UNIX, inclusi stato, modalità manuale e ripristino automatico.
 * **`setup_wizard.py`** (`pico-fan setup`): Wizard guidato interattivo a colori. Guida l'utente nel rilevamento hardware, test della ventola con ricerca del duty cycle ottimale, scelta della sorgente RPM e salvataggio della configurazione in `/etc/pico-fan/config.json`.
 * **`status.py`** (`pico-fan status`): Client IPC leggibile. Si connette al socket UNIX `/run/pico-fan.sock` ed eroga la diagnostica formattata (RPM sorgente, RPM Pico, Duty %, Porta Seriale).
 * **`manual.py`** (`pico-fan manual <N>`): Controllo manuale temporaneo. Invia il duty specificato al demone via socket UNIX e mostra gli RPM in tempo reale fino a interruzione con Ctrl+C (che ripristina la modalità automatica).

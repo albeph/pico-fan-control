@@ -41,8 +41,10 @@ FAILURES=0
 test_python_syntax() {
     header "Verifica sintassi Python"
     local files=(
+        "${REPO_ROOT}/daemon/pico_adapter.py"
         "${REPO_ROOT}/daemon/fan_daemon.py"
         "${REPO_ROOT}/daemon/hardware_detector.py"
+        "${REPO_ROOT}/cli/ipc_adapter.py"
         "${REPO_ROOT}/cli/setup_wizard.py"
         "${REPO_ROOT}/cli/status.py"
         "${REPO_ROOT}/cli/manual.py"

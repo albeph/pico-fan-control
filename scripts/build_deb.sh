@@ -151,9 +151,11 @@ install_files() {
     # Daemon Python
     cp "${REPO_ROOT}/daemon/fan_daemon.py"        "${DEST_LIB}/daemon/"
     cp "${REPO_ROOT}/daemon/hardware_detector.py" "${DEST_LIB}/daemon/"
+    cp "${REPO_ROOT}/daemon/pico_adapter.py"      "${DEST_LIB}/daemon/"
     cp "${REPO_ROOT}/daemon/version.py"           "${DEST_LIB}/daemon/"
 
     # CLI
+    cp "${REPO_ROOT}/cli/ipc_adapter.py"   "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/setup_wizard.py" "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/status.py"       "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/manual.py"       "${DEST_LIB}/cli/"

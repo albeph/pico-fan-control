@@ -10,54 +10,15 @@ ripristinato automaticamente all'uscita.
 
 from __future__ import annotations
 
-import json
 import signal
-import socket
 import sys
 import time
 from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
+from ipc_adapter import IpcAdapter, SOCK_PATH
 
-SOCK_PATH   = "/run/pico-fan.sock"
 REFRESH_SEC = 1.0   # Intervallo di aggiornamento RPM
 
-
-
-# ---------------------------------------------------------------------------
-# IPC helpers
-# ---------------------------------------------------------------------------
-
-def _ipc(command: str, timeout: float = 3.0) -> str | None:
-    """Invia un comando al socket IPC del demone, restituisce la risposta grezza."""
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
-            s.connect(SOCK_PATH)
-            if command:
-                s.sendall((command + "\n").encode("utf-8"))
-            return s.recv(4096).decode("utf-8", errors="replace").strip()
-    except FileNotFoundError:
-        return None
-    except Exception:
-        return None
-
-
-def _send_set(duty: int) -> bool:
-    resp = _ipc(f"SET {duty}")
-    return resp == "OK"
-
-
-def _send_resume() -> None:
-    _ipc("RESUME")
-
-
-def _get_status() -> dict | None:
-    raw = _ipc("")   # nessun comando → STATUS
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+ipc = IpcAdapter()
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +56,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Controlla che il demone sia in ascolto
     # -----------------------------------------------------------------------
-    state = _get_status()
+    state = ipc.get_status()
     if state is None:
         cprint(
             f"Errore: socket {SOCK_PATH} non trovato.\n"
@@ -107,7 +68,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # Attiva la modalità manuale
     # -----------------------------------------------------------------------
-    if not _send_set(duty):
+    if not ipc.set_manual_duty(duty):
         cprint("Errore: impossibile impostare il duty cycle. Il demone ha risposto in modo inatteso.", RED)
         sys.exit(1)
 
@@ -118,7 +79,7 @@ def main() -> None:
         # Vai a capo dopo la riga \r in corso
         print()
         cprint("\nRipristino controllo automatico...", YELLOW)
-        _send_resume()
+        ipc.resume()
         cprint("✓ Controllo automatico ripristinato.", GREEN)
         sys.exit(0)
 
@@ -141,7 +102,7 @@ def main() -> None:
     # Loop di monitoraggio
     # -----------------------------------------------------------------------
     while True:
-        state = _get_status()
+        state = ipc.get_status()
         if state is None:
             print(f"\r  {RED}Connessione al demone persa.{RESET}                          ", end="", flush=True)
         else:

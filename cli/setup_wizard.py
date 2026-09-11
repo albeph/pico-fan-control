@@ -30,7 +30,8 @@ DAEMON_DIR = SCRIPT_DIR.parent / "daemon"
 sys.path.insert(0, str(DAEMON_DIR))
 
 try:
-    from hardware_detector import scan_devices, PicoDevice, probe_pico
+    from hardware_detector import scan_devices, PicoDevice
+    from pico_adapter import PicoAdapter
     from fan_daemon import (
         read_internal_rpm_ibm,
         read_internal_rpm_hwmon,
@@ -41,23 +42,13 @@ except ImportError as e:
     cprint("Assicurarsi che il pacchetto sia installato correttamente.", RED)
     sys.exit(1)
 
-try:
-    import serial
-    import serial.serialutil
-except ImportError:
-    cprint("Errore: pyserial non installato. Eseguire: pip install pyserial", RED)
-    sys.exit(1)
+import serial.serialutil
 
 # ---------------------------------------------------------------------------
 # Costanti
 # ---------------------------------------------------------------------------
 CONFIG_DIR  = "/etc/pico-fan"
 CONFIG_FILE = "/etc/pico-fan/config.json"
-BAUDRATE    = 115200
-
-
-
-
 def banner() -> None:
     cprint(rf"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -191,23 +182,12 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
     def_optimal_duty = 100   # default
 
     try:
-        # Apre la porta seriale; al termine del blocco viene chiusa automaticamente.
-        with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
-            # Aspetta che il Pico sia pronto (reset CDC) e svuota il banner di avvio
-            time.sleep(1.0)
-            ser.reset_input_buffer()
+        with PicoAdapter(device.real_path, timeout=3.0, connect_delay=1.0) as pico:
 
             for duty, desc in test_sequences:
                 cprint(f"\n  → Imposto {desc} ...", CYAN)
 
-                # Svuota buffer prima di inviare il comando
-                ser.reset_input_buffer()
-                ser.write(f"SET {duty}\n".encode())
-                ser.flush()
-
-                # Aspetta la risposta con un piccolo ritardo per dare tempo al firmware
-                time.sleep(0.3)
-                resp = ser.readline().decode("ascii", errors="replace").strip()
+                resp = pico.send_command(f"SET {duty}")
 
                 if resp == "OK":
                     cprint(f"    ✓ Risposta: {resp}", GREEN)
@@ -216,12 +196,12 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
 
                 time.sleep(2.0)
 
-                # Leggi RPM
-                ser.reset_input_buffer()
-                ser.write(b"RPM\n")
-                ser.flush()
-                time.sleep(0.3)
-                rpm_resp = ser.readline().decode("ascii", errors="replace").strip()
+                rpm, current_duty = pico.fetch_rpm()
+                rpm_resp = (
+                    f"RPM:{rpm} DUTY:{current_duty}%"
+                    if rpm is not None
+                    else "nessuna risposta"
+                )
                 cprint(f"    Stato: {rpm_resp}", DIM)
 
         cprint("\n✓ Test completato.", GREEN, bold=True)
@@ -248,41 +228,32 @@ def step_test_fan(device: PicoDevice) -> tuple[bool, int]:
             candidates = [70, 75, 80, 85, 90, 95, 100]
             results: list[tuple[int, int]] = []   # (duty, rpm)
 
+            """
+            N.B. stiamo usando il contatto diretto con il microcontrollore e non ci stiamo interfacciando con il demone 
+            perchè a questo punto della configurazione il demone non è ancora avviato
+            """
+
             try:
-                with serial.Serial(device.real_path, baudrate=BAUDRATE, timeout=3.0) as ser:
-                    time.sleep(0.8)
-                    ser.reset_input_buffer()
+                with PicoAdapter(device.real_path, timeout=3.0, connect_delay=0.8) as pico:
 
                     for duty in candidates:
                         cprint(f"\n  → Test {duty}% ...", CYAN)
-                        ser.reset_input_buffer()
-                        ser.write(f"SET {duty}\n".encode())
-                        ser.flush()
-                        time.sleep(0.3)
-                        ser.readline()          # consuma "OK"
+                        pico.set_duty(duty)
 
                         time.sleep(2.5)         # lascia stabilizzare gli RPM
 
-                        ser.reset_input_buffer()
-                        ser.write(b"RPM\n")
-                        ser.flush()
-                        time.sleep(0.3)
-                        rpm_raw = ser.readline().decode("ascii", errors="replace").strip()
-
-                        # Estrai valore numerico RPM dalla risposta "RPM:1234 DUTY:90%"
-                        rpm_val = 0
-                        for token in rpm_raw.split():
-                            if token.startswith("RPM:"):
-                                try:
-                                    rpm_val = int(token[4:])
-                                except ValueError:
-                                    pass
+                        rpm_val, current_duty = pico.fetch_rpm()
+                        rpm_val = rpm_val or 0
+                        rpm_raw = (
+                            f"RPM:{rpm_val} DUTY:{current_duty}%"
+                            if current_duty is not None
+                            else f"RPM:{rpm_val}"
+                        )
                         results.append((duty, rpm_val))
                         cprint(f"    {rpm_raw}  →  {rpm_val} RPM", GREEN if rpm_val > 0 else YELLOW)
 
                     # Spegni ventola alla fine del test
-                    ser.write(b"SET 0\n")
-                    ser.flush()
+                    pico.set_duty(0)
 
             except serial.serialutil.SerialException as exc:
                 cprint(f"\n  ⚠ Errore durante il test ottimale: {exc}", YELLOW)

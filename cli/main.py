@@ -105,6 +105,17 @@ def main() -> None:
         cprint("Esegui pico-fan --help per la lista dei comandi disponibili.", BOLD)
         sys.exit(1)
 
+    # PermissionError 
+
+    if cmd != "version" and os.geteuid() != 0:
+        cprint(
+            "Errore: questo comando richiede i permessi di root.\n"
+            f"Eseguire: sudo pico-fan {cmd}",
+            RED,
+            bold=True,
+        )
+        sys.exit(1)
+
     # Rimuove il sottocomando da sys.argv così i moduli ricevono i propri argomenti
     sys.argv = [f"pico-fan {cmd}"] + sys.argv[2:]
 

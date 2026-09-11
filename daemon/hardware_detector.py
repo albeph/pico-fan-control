@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    import serial
     import serial.serialutil
+    from pico_adapter import PicoAdapter
 except ImportError:
     raise SystemExit(
         "Errore: pyserial non installato. Eseguire: pip install pyserial"
@@ -130,21 +130,10 @@ def probe_pico(real_path: str) -> tuple[bool, Optional[int], Optional[int]]:
     """
     for attempt in range(PROBE_RETRIES):
         try:
-            with serial.Serial(
-                real_path,
-                baudrate=SERIAL_BAUDRATE,
-                timeout=SERIAL_TIMEOUT,
-            ) as ser:
-                time.sleep(0.5)         # Attende reset CDC
-                ser.reset_input_buffer()
-                ser.write(b"RPM\n")
-                ser.flush()
-                response = ser.readline().decode("ascii", errors="replace").strip()
-
-                logger.debug("Risposta da %s: '%s'", real_path, response)
-
-                if response.startswith("RPM:"):
-                    rpm, duty = _parse_rpm_response(response)
+            with PicoAdapter(real_path, timeout=SERIAL_TIMEOUT) as pico:
+                rpm, duty = pico.fetch_rpm()
+                logger.debug("Risposta da %s: RPM=%s DUTY=%s", real_path, rpm, duty)
+                if rpm is not None:
                     return True, rpm, duty
 
         except serial.serialutil.SerialException as exc:
@@ -158,24 +147,6 @@ def probe_pico(real_path: str) -> tuple[bool, Optional[int], Optional[int]]:
             break
 
     return False, None, None
-
-
-def _parse_rpm_response(response: str) -> tuple[Optional[int], Optional[int]]:
-    """
-    Parsa la risposta "RPM:<val> DUTY:<val>%" e restituisce (rpm, duty).
-    """
-    rpm = None
-    duty = None
-    try:
-        parts = response.split()
-        for part in parts:
-            if part.startswith("RPM:"):
-                rpm = int(part[4:])
-            elif part.startswith("DUTY:"):
-                duty = int(part[5:].rstrip("%"))
-    except (ValueError, IndexError) as exc:
-        logger.debug("Errore parsing risposta '%s': %s", response, exc)
-    return rpm, duty
 
 
 def scan_devices(probe: bool = True) -> list[PicoDevice]:

@@ -156,6 +156,7 @@ install_files() {
     # CLI
     cp "${REPO_ROOT}/cli/setup_wizard.py" "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/status.py"       "${DEST_LIB}/cli/"
+    cp "${REPO_ROOT}/cli/manual.py"       "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/main.py"         "${DEST_LIB}/cli/"
 
     # File VERSION installato (per runtime version resolution)

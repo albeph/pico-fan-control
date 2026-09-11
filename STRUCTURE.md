@@ -24,8 +24,10 @@ pico-fan-control/
 │   └── version.py            # Utility per la risoluzione dinamica della versione runtime
 │
 ├── cli/                      # Strumenti di interfaccia a riga di comando (User Tools)
-│   ├── setup_wizard.py       # Eseguibile pico-fan-setup: wizard interattivo di configurazione
-│   └── status.py             # Eseguibile pico-fan-status: client IPC per lo stato in tempo reale
+│   ├── main.py               # Eseguibile pico-fan: dispatcher unificato con sottocomandi
+│   ├── setup_wizard.py       # Wizard interattivo di configurazione hardware e soglie (pico-fan setup)
+│   ├── status.py             # Client IPC per lo stato in tempo reale (pico-fan status)
+│   └── manual.py             # Controllo manuale temporaneo della velocità ventola (pico-fan manual)
 │
 ├── systemd/                  # Configurazione del servizio di sistema
 │   └── pico-fan.service      # Unit file systemd per l'avvio automatico al boot
@@ -62,9 +64,11 @@ Contiene il cuore del servizio di backend in esecuzione sul server/host Linux.
 * **`version.py`**: Modulo helper per risolvere la versione del software a runtime leggendo da Git o dal file `VERSION`.
 
 ### 3. `cli/`
-Contiene i tool a riga di comando rivolti all'utente.
-* **`setup_wizard.py`** (wrapper: `pico-fan-setup`): Wizard guidato interattivo a colori. Guida l'utente nel rilevamento hardware, test velocità ventola, scelta della sorgente RPM e salvataggio della configurazione in `/etc/pico-fan/config.json`.
-* **`status.py`** (wrapper: `pico-fan-status`): Client IPC leggibile. Si connette al socket UNIX `/run/pico-fan.sock` ed eroga la diagnostica formattata (RPM sorgente, RPM Pico, Duty %, Porta Seriale).
+Contiene i tool a riga di comando rivolti all'utente, richiamabili tramite l'eseguibile unico `pico-fan`:
+* **`main.py`**: Dispatcher principale. Smista gli argomenti ai sottocomandi (`setup`, `status`, `manual`, `version`, `daemon`) o mostra l'help contestuale.
+* **`setup_wizard.py`** (`pico-fan setup`): Wizard guidato interattivo a colori. Guida l'utente nel rilevamento hardware, test della ventola con ricerca del duty cycle ottimale, scelta della sorgente RPM e salvataggio della configurazione in `/etc/pico-fan/config.json`.
+* **`status.py`** (`pico-fan status`): Client IPC leggibile. Si connette al socket UNIX `/run/pico-fan.sock` ed eroga la diagnostica formattata (RPM sorgente, RPM Pico, Duty %, Porta Seriale).
+* **`manual.py`** (`pico-fan manual <N>`): Controllo manuale temporaneo. Invia il duty specificato al demone via socket UNIX e mostra gli RPM in tempo reale fino a interruzione con Ctrl+C (che ripristina la modalità automatica).
 
 ### 4. `systemd/`
 * **`pico-fan.service`**: File di servizio per `systemd`. Permette di gestire il demone tramite `systemctl start/stop/status/enable pico-fan`.
@@ -80,7 +84,7 @@ Contiene i file standard di confezionamento Debian per la generazione del file `
 * **`postrm`**: Eseguito dopo la rimozione per ricaricare systemd e udev ed eventualmente ripulire `/etc/pico-fan` su `apt purge`.
 
 ### 7. `scripts/`
-* **`build_deb.sh`**: Prepara l'albero delle directory temporanee sotto `build/`, copia i file di libreria in `/usr/lib/pico-fan/`, crea i wrapper eseguibili in `/usr/bin/` (`pico-fan-daemon`, `pico-fan-setup`, `pico-fan-status`, `pico-fan-version`), imposta i permessi `755`/`644` e invoca `dpkg-deb`.
+* **`build_deb.sh`**: Prepara l'albero delle directory temporanee sotto `build/`, copia i file di libreria in `/usr/lib/pico-fan/`, crea il wrapper eseguibile `/usr/bin/pico-fan`, imposta i permessi `755`/`644` e invoca `dpkg-deb`.
 * **`test_local.sh`**: Suite di test automatica per verificare la sintassi dei file Python e Bash senza dover installare il pacchetto nel sistema.
 
 ---
@@ -91,9 +95,9 @@ Quando viene installato il pacchetto `.deb`, i file vengono posizionati come seg
 
 | File Sorgente | Percorso di Installazione | Note |
 |---|---|---|
-| `daemon/` & `cli/` | `/usr/lib/pico-fan/` | Codice Python di supporto |
+| `daemon/` & `cli/` | `/usr/lib/pico-fan/` | Codice Python di backend e CLI |
 | `firmware/` | `/usr/lib/pico-fan/firmware/` | Archivio firmware di riferimento |
 | `configs/config.json.example` | `/usr/lib/pico-fan/` & `/etc/pico-fan/` | Template configurazione |
-| Wrapper Bash | `/usr/bin/pico-fan-*` | Eseguibili di sistema nel PATH |
+| Wrapper Bash | `/usr/bin/pico-fan` | Unico eseguibile CLI nel PATH |
 | `systemd/pico-fan.service` | `/usr/lib/systemd/system/` | Unità systemd |
 | `udev/99-pico-fan.rules` | `/etc/udev/rules.d/` | Regole udev |

@@ -151,17 +151,47 @@ Il sistema finale si compone di cinque moduli interconnessi:
 
 ---
 
+### Round 8: Unificazione della CLI in un Singolo Eseguibile (v1.0.7 - v1.0.8)
+- **Obiettivo:** Sostituire i 4 programmi separati (`pico-fan-daemon`, `pico-fan-setup`, `pico-fan-status`, `pico-fan-version`) con un unico eseguibile `pico-fan` dotato di sottocomandi.
+- **Cosa è stato modificato:**
+  - Creato `cli/main.py` come dispatcher con help contestuale a colori.
+  - Rimossi i binari multipli in `/usr/bin/`: installato esclusivamente `/usr/bin/pico-fan`.
+  - Aggiornato `pico-fan.service` con `ExecStart=/usr/bin/pico-fan daemon`.
+- **Risultato:** Interfaccia utente pulita, standardizzata e priva di ridondanze.
+
+---
+
+### Round 9: Robustezza Systemd, Upgrade Pulito e Duty Ottimale (v1.1.0 - v1.1.6)
+- **Obiettivi & Bugfix:**
+  - Distinzione nel `postinst` tra prima installazione (mostra i passi guidati) e upgrade (`Aggiornamento completato`).
+  - Risoluzione del crash del servizio al boot se la configurazione `/etc/pico-fan/config.json` non è ancora presente: aggiunta direttiva `ConditionPathExists=/etc/pico-fan/config.json` a `pico-fan.service`.
+  - Aggiunta nel wizard di setup della ricerca interattiva e automatica del **duty cycle ottimale** (molte ventole PWM raggiungono il picco di RPM a un duty del 90% anziché 100%).
+
+---
+
+### Round 10: Modalità Manuale Temporanea e Packaging Fix (v1.1.7)
+- **Obiettivo:** Permettere all'utente di forzare la velocità della ventola a una percentuale fissa per test o raffreddamento intensivo, visualizzando gli RPM in tempo reale fino a Ctrl+C.
+- **Cosa è stato modificato:**
+  - Esteso il protocollo del socket IPC UNIX `/run/pico-fan.sock` in `fan_daemon.py` per accettare i comandi `SET <duty>` e `RESUME`.
+  - Creato il modulo `cli/manual.py` invocabile con `pico-fan manual <N>`. Al Ctrl+C, il client invia `RESUME` e il demone riprende istantaneamente la curva automatica.
+  - Risolto bug di packaging in `scripts/build_deb.sh` includendo `cli/manual.py` nel pacchetto Debian.
+- **Risultato:** Rilasciata versione stabile **`v1.1.7`**.
+
+---
+
 ## 4. Risultati Finali e Valutazione del Software
 
-Il software si trova attualmente nello stato stabile **`v1.0.6`**.
+Il software si trova attualmente nello stato stabile **`v1.1.7`**.
 
 ### Pacchetto Rilasciato:
-- **File pacchetto:** `pico-fan_1.0.6_all.deb`
-- **Comandi installati nel sistema:**
-  - `pico-fan-setup`: Wizard di installazione e test hardware.
-  - `pico-fan-status`: CLI di diagnostica e monitoraggio veloce.
-  - `pico-fan-daemon`: Demone di gestione in background.
-  - `pico-fan-version`: Output della versione installata.
+- **File pacchetto:** `pico-fan_1.1.7_all.deb`
+- **Comando installato nel sistema:**
+  - `pico-fan`: Unico punto di accesso per tutti i sottocomandi:
+    - `pico-fan setup`: Wizard di configurazione interattivo con ricerca duty ottimale.
+    - `pico-fan status`: Diagnostica istantanea via socket IPC `/run/pico-fan.sock`.
+    - `pico-fan manual <N>`: Forzatura temporanea duty cycle con monitor live RPM.
+    - `pico-fan version`: Versione corrente installata.
+    - `pico-fan daemon`: Backend avviato come servizio systemd.
 
 ### Matrice delle Caratteristiche:
 | Funzionalità | Stato | Note |
@@ -170,9 +200,10 @@ Il software si trova attualmente nello stato stabile **`v1.0.6`**.
 | Lettura Tachimetro Interrupt | ✅ Attivo | Conteggio ad alta precisione su RP2040 (GP14) |
 | Sincronizzazione RPM Sorgente | ✅ Attivo | Supporto ThinkPad ACPI e hwmon generici |
 | Tolleranza ai Guasti USB | ✅ Attivo | Riconnessione automatica senza crash in caso di scollegamento |
-| Interfaccia CLI Status | ✅ Attivo | Comunicazione socket UNIX `/run/pico-fan.sock` |
+| Interfaccia IPC Socket UNIX | ✅ Attivo | Comunicazione socket UNIX `/run/pico-fan.sock` per status e manual |
 | Impatto CPU | ✅ < 0.1% | Uso di `threading.Event` bloccante |
-| Compatibilità Kernel | ✅ 100% | Zero moduli C / Zero dipendenze `linux-headers` |
+| Compatibilità Kernel | ✅ 100% | Zero moduli C / Zero dipendenze `linux-headers` (100% Userspace) |
+| CLI Unificata | ✅ Attivo | Comando unico `pico-fan` |
 
 ---
 
@@ -180,13 +211,16 @@ Il software si trova attualmente nello stato stabile **`v1.0.6`**.
 
 ```bash
 # Installazione o aggiornamento del pacchetto
-sudo dpkg -i pico-fan_1.0.6_all.deb
+sudo dpkg -i pico-fan_1.1.7_all.deb
 
 # Configurazione guidata iniziale
-sudo pico-fan-setup
+sudo pico-fan setup
 
 # Verifica dello stato in tempo reale
-pico-fan-status
+pico-fan status
+
+# Controllo manuale temporaneo (Ctrl+C per uscire)
+pico-fan manual 80
 
 # Gestione servizio systemd
 sudo systemctl restart pico-fan
@@ -197,4 +231,4 @@ journalctl -u pico-fan -f
 ```
 
 ---
-*Relazione generata per il repository `pico-fan-control`.*
+*Relazione aggiornata per il repository `pico-fan-control`.*

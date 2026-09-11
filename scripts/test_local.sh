@@ -44,6 +44,9 @@ test_python_syntax() {
         "${REPO_ROOT}/daemon/fan_daemon.py"
         "${REPO_ROOT}/daemon/hardware_detector.py"
         "${REPO_ROOT}/cli/setup_wizard.py"
+        "${REPO_ROOT}/cli/status.py"
+        "${REPO_ROOT}/cli/manual.py"
+        "${REPO_ROOT}/cli/main.py"
     )
     for f in "${files[@]}"; do
         if $PYTHON -m py_compile "$f" 2>/dev/null; then

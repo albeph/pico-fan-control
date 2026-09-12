@@ -1,15 +1,14 @@
 Source: pico-fan
 Section: utils
 Priority: optional
-Maintainer: pico-fan-control project <pico-fan@example.com>
+Maintainer: albeph
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.2
-Homepage: https://github.com/pico-fan-control/pico-fan-control
-Rules-Requires-Root: no
+Homepage: https://github.com/albeph/pico-fan-control
+Rules-Requires-Root: yes
 
 Package: pico-fan
-Maintainer: pico-fan-control project <pico-fan@example.com>
-Version: 1.0.0
+Maintainer: albeph
 Architecture: all
 Depends: python3 (>= 3.9),
  python3-serial,
@@ -22,7 +21,7 @@ Description: Controllo ventola USB via Raspberry Pi Pico CLI Status
  .
   - Firmware MicroPython per RP2040 (PWM 25kHz + tachimetro interrupt)
   - Interfaccia CLI "pico-fan-status" per la diagnostica in tempo reale
-  - Demone di sincronizzazione RPM fault-tolerant
+  - Demone di sincronizzazione RPM
   - Wizard interattivo di configurazione
   - Integrazione completa systemd e udev
  .

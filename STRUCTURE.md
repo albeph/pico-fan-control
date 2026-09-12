@@ -35,7 +35,7 @@ pico-fan-control/
 │   └── pico-fan.service      # Unit file systemd per l'avvio automatico al boot
 │
 ├── udev/                     # Regole di gestione dispositivi hardware Linux
-│   └── 99-pico-fan.rules     # Permessi gruppo dialout e symlink /dev/pico-fan
+│   └── 99-pico-fan.rules     # Riferimento per la regola generata dal wizard
 │
 ├── debian/                   # Metadata e script per la creazione del pacchetto .deb
 │   ├── control               # Metadati del pacchetto Debian (dipendenze, descrizione)
@@ -78,12 +78,12 @@ Contiene i tool a riga di comando rivolti all'utente, richiamabili tramite l'ese
 * **`pico-fan.service`**: File di servizio per `systemd`. Permette di gestire il demone tramite `systemctl start/stop/status/enable pico-fan`.
 
 ### 5. `udev/`
-* **`99-pico-fan.rules`**: Regole `udev` che vengono copiate in `/etc/udev/rules.d/`. Garantiscono permessi di lettura/scrittura al gruppo `dialout` e creano symlink stabili.
+* **`99-pico-fan.rules`**: Riferimento per la regola `udev` generata dal wizard sul seriale del Pico selezionato. La regola assegna il dispositivo al gruppo Linux `dialout`, normalmente autorizzato ad accedere alle porte seriali, e usa `MODE="0660"` per consentire lettura e scrittura solo a `root` e agli utenti del gruppo `dialout`. Crea inoltre il symlink stabile `/dev/pico-fan`. Il file nel repository è solo documentazione: la regola effettiva viene generata in `/etc/udev/rules.d/99-pico-fan-device.rules` durante `pico-fan setup`.
 
 ### 6. `debian/`
 Contiene i file standard di confezionamento Debian per la generazione del file `.deb`:
 * **`control`**: Contiene nome, versione, mantenitore e dipendenze del pacchetto (`python3`, `python3-serial`, `lm-sensors`, `udev`).
-* **`postinst`**: Eseguito dopo l'installazione per abilitare i servizi systemd e le regole udev.
+* **`postinst`**: Eseguito dopo l'installazione per preparare systemd; la regola udev viene generata dal wizard.
 * **`prerm`**: Eseguito prima della rimozione per fermare il demone.
 * **`postrm`**: Eseguito dopo la rimozione per ricaricare systemd e udev ed eventualmente ripulire `/etc/pico-fan` su `apt purge`.
 
@@ -104,4 +104,4 @@ Quando viene installato il pacchetto `.deb`, i file vengono posizionati come seg
 | `configs/config.json.example` | `/usr/lib/pico-fan/` & `/etc/pico-fan/` | Template configurazione |
 | Wrapper Bash | `/usr/bin/pico-fan` | Unico eseguibile CLI nel PATH |
 | `systemd/pico-fan.service` | `/usr/lib/systemd/system/` | Unità systemd |
-| `udev/99-pico-fan.rules` | `/etc/udev/rules.d/` | Regole udev |
+| `udev/99-pico-fan.rules` | Non installato | Riferimento; la regola runtime è generata da `pico-fan setup` |

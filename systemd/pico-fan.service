@@ -1,6 +1,6 @@
 [Unit]
 Description=Pico Fan Control Daemon - USB Fan Sync via Raspberry Pi Pico
-Documentation=https://github.com/pico-fan-control/pico-fan-control
+Documentation=https://github.com/albeph/pico-fan-control
 After=network.target systemd-udev-settle.service
 Wants=systemd-udev-settle.service
 StartLimitIntervalSec=120

@@ -80,7 +80,7 @@ pico-fan-control/
 ├── systemd/
 │   └── pico-fan.service      # Unit systemd
 ├── udev/
-│   └── 99-pico-fan.rules       # Permessi seriale + symlink
+│   └── 99-pico-fan.rules       # Riferimento per la regola generata dal wizard
 ├── debian/
 │   ├── control                 # Metadati pacchetto
 │   ├── postinst                # Hook post-install
@@ -179,12 +179,7 @@ Il wizard guiderà attraverso:
 - ✅ Salvataggio in `/etc/pico-fan/config.json`
 
 
-### 4. Avvia il demone
-
-```bash
-sudo systemctl start pico-fan
-sudo systemctl enable pico-fan   # Avvio automatico al boot
-```
+Al termine del wizard il servizio viene avviato e abilitato automaticamente.
 
 ---
 
@@ -315,7 +310,6 @@ journalctl -u pico-fan -n 50 --no-pager
 *Se il file di configurazione `/etc/pico-fan/config.json` è mancante, esegui prima:*
 ```bash
 sudo pico-fan setup
-sudo systemctl restart pico-fan
 ```
 
 ### Il comando `pico-fan status` o `manual` dice "connessione rifiutata / socket non trovato"

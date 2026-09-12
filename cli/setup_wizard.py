@@ -19,6 +19,8 @@ import json
 import time
 import shutil
 import signal
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cformat, cprint, cwrite
@@ -49,6 +51,102 @@ import serial.serialutil
 # ---------------------------------------------------------------------------
 CONFIG_DIR  = "/etc/pico-fan"
 CONFIG_FILE = "/etc/pico-fan/config.json"
+UDEV_RULE_FILE = "/etc/udev/rules.d/99-pico-fan-device.rules"
+
+
+def start_service() -> bool:
+    """Abilita e avvia il servizio dopo il salvataggio della configurazione."""
+    try:
+        subprocess.run(
+            ["systemctl", "enable", "--now", "pico-fan.service"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        cprint("⚠ systemd non disponibile: servizio non avviato.", YELLOW)
+        return False
+    except subprocess.CalledProcessError:
+        cprint(
+            "⚠ Impossibile abilitare/avviare il servizio systemd.\n"
+            "  Verificare lo stato con: sudo systemctl status pico-fan",
+            YELLOW,
+        )
+        return False
+
+    cprint("✓ Servizio pico-fan abilitato e avviato.", GREEN)
+    return True
+
+
+def configure_udev(device: PicoDevice) -> bool:
+    """Crea la regola udev per il Pico selezionato e la applica."""
+    try:
+        result = subprocess.run(
+            ["udevadm", "info", "--query=property", "--name", device.real_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        cprint(f"✗ Impossibile leggere gli attributi udev del Pico: {exc}", RED)
+        return False
+
+    properties = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            properties[key] = value
+
+    usb_serial = properties.get("ID_SERIAL_SHORT", "")
+    if not usb_serial:
+        cprint(
+            "✗ Il Pico selezionato non espone un seriale USB.\n"
+            "  La regola udev dedicata non può essere generata in sicurezza.",
+            RED,
+        )
+        return False
+
+    escaped_serial = usb_serial.replace("\\", "\\\\").replace('"', '\\"')
+    rule = (
+        "# Generata da pico-fan setup. Non modificare manualmente.\n"
+        f'SUBSYSTEM=="tty", ATTRS{{idVendor}}=="2e8a", '
+        f'ATTRS{{serial}}=="{escaped_serial}", '
+        'GROUP="dialout", MODE="0660", SYMLINK+="pico-fan"\n'
+    )
+
+    try:
+        udev_dir = os.path.dirname(UDEV_RULE_FILE)
+        os.makedirs(udev_dir, mode=0o755, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=udev_dir, delete=False
+        ) as temporary:
+            temporary.write(rule)
+            temporary_path = temporary.name
+        os.chmod(temporary_path, 0o644)
+        os.replace(temporary_path, UDEV_RULE_FILE)
+
+        subprocess.run(["udevadm", "control", "--reload-rules"], check=True)
+        subprocess.run(
+            [
+                "udevadm",
+                "trigger",
+                "--action=change",
+                "--subsystem-match=tty",
+                f"--sysname-match={os.path.basename(device.real_path)}",
+            ],
+            check=True,
+        )
+    except (OSError, FileNotFoundError, subprocess.CalledProcessError) as exc:
+        cprint(f"✗ Impossibile configurare la regola udev: {exc}", RED)
+        return False
+
+    cprint(
+        f"✓ Regola udev configurata per il seriale USB {usb_serial}.",
+        GREEN,
+    )
+    return True
+
+
 def banner() -> None:
     cprint(rf"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -533,15 +631,20 @@ def main() -> None:
     # Riepilogo finale
     separator("COMPLETATO")
     if saved:
-        cprint(
-            "✓ Setup completato con successo!\n\n"
-            "  Prossimi passi:\n"
-            "  1. Avviare il demone:          sudo systemctl start pico-fan\n"
-            "  2. Abilitare all'avvio:        sudo systemctl enable pico-fan\n"
-            "  3. Verificare lo stato:        pico-fan-status\n",
-            GREEN,
-            bold=True,
-        )
+        if configure_udev(device):
+            start_service()
+            cprint(
+                "✓ Setup completato con successo!\n\n"
+                "  Verificare lo stato:        pico-fan status\n",
+                GREEN,
+                bold=True,
+            )
+        else:
+            cprint(
+                "⚠ Configurazione salvata, ma il servizio non è stato avviato.\n"
+                "  Correggere la configurazione udev e rieseguire il wizard.",
+                YELLOW,
+            )
     else:
         cprint(
             "⚠ Setup incompleto. Ricontrollare la configurazione e riprovare.",

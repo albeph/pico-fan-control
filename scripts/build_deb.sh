@@ -97,7 +97,6 @@ PKG_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
 DEST_LIB="${PKG_DIR}/usr/lib/pico-fan"
 DEST_BIN="${PKG_DIR}/usr/bin"
 DEST_SYSTEMD="${PKG_DIR}/lib/systemd/system"
-DEST_UDEV="${PKG_DIR}/etc/udev/rules.d"
 DEST_DEBIAN="${PKG_DIR}/DEBIAN"
 
 # ---------------------------------------------------------------------------
@@ -135,7 +134,6 @@ create_dirs() {
         "${DEST_LIB}/cli" \
         "${DEST_BIN}" \
         "${DEST_SYSTEMD}" \
-        "${DEST_UDEV}" \
         "${DEST_DEBIAN}"
 }
 
@@ -171,8 +169,7 @@ install_files() {
     # systemd unit
     cp "${REPO_ROOT}/systemd/pico-fan.service" "${DEST_SYSTEMD}/"
 
-    # udev rules
-    cp "${REPO_ROOT}/udev/99-pico-fan.rules" "${DEST_UDEV}/"
+    # La regola udev viene generata dal wizard per il seriale selezionato.
 }
 
 # ---------------------------------------------------------------------------

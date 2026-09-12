@@ -216,6 +216,8 @@ sudo dpkg -i pico-fan_1.1.7_all.deb
 # Configurazione guidata iniziale
 sudo pico-fan setup
 
+# Il wizard salva la configurazione e abilita/avvia automaticamente il servizio
+
 # Verifica dello stato in tempo reale
 pico-fan status
 
@@ -223,6 +225,7 @@ pico-fan status
 pico-fan manual 80
 
 # Gestione servizio systemd
+# Il restart è necessario solo per una gestione manuale o dopo modifiche operative
 sudo systemctl restart pico-fan
 sudo systemctl status pico-fan
 

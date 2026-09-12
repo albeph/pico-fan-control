@@ -13,3 +13,5 @@ build/
 .idea/
 *.swp
 *~
+
+.not_upload

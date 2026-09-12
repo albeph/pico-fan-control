@@ -55,48 +55,6 @@
 
 ---
 
-## Struttura del repository
-
-> ℹ️ Per la mappa dettagliata e spiegazione di ogni singolo file, consulta STRUCTURE.md.
-
-```
-pico-fan-control/
-├── VERSION                   # Versione del pacchetto (es. 1.1.7)
-├── Makefile                  # Build, test e packaging
-├── README.md                 # Guida rapida e panoramica
-├── STRUCTURE.md              # Descrizione dettagliata dell'albero delle directory
-├── RELAZIONE_PROGETTO.md     # Report completo di sviluppo e cronologia dei round
-├── firmware/
-│   └── main.py               # Firmware MicroPython RP2040
-├── daemon/
-│   ├── fan_daemon.py         # Demone sincronizzazione RPM e IPC server
-│   ├── hardware_detector.py # Scanner porte seriali Pico
-│   └── version.py            # Risoluzione versione runtime
-├── cli/
-│   ├── main.py               # Dispatcher CLI unificato (pico-fan)
-│   ├── setup_wizard.py       # Wizard CLI (pico-fan setup)
-│   ├── status.py             # Diagnostica CLI (pico-fan status)
-│   └── manual.py             # Controllo manuale (pico-fan manual)
-├── systemd/
-│   └── pico-fan.service      # Unit systemd
-├── udev/
-│   └── 99-pico-fan.rules       # Riferimento per la regola generata dal wizard
-├── debian/
-│   ├── control                 # Metadati pacchetto
-│   ├── postinst                # Hook post-install
-│   ├── prerm                   # Hook pre-rimozione
-│   └── postrm                  # Hook post-rimozione
-├── configs/
-│   └── config.json.example    # Template configurazione
-├── scripts/
-│   ├── build_deb.sh           # Build pacchetto .deb
-│   └── test_local.sh          # Test suite locale
-├── Makefile                    # Target principali
-└── README.md                   # Questa documentazione
-```
-
----
-
 ## Requisiti hardware
 
 ### Raspberry Pi Pico / RP2040
@@ -191,14 +149,14 @@ Tutti i comandi sono centralizzati nell'eseguibile unico `pico-fan`:
 # Mostra la guida dei comandi disponibili
 pico-fan
 
+# Esegui il wizard di configurazione (richiede root)
+sudo pico-fan setup
+
 # Diagnostica istantanea: RPM interno, RPM Pico, duty %, porta seriale
 pico-fan status
 
 # Controllo manuale temporaneo (es. porta la ventola al 75% e monitora i giri; Ctrl+C ripristina il controllo automatico)
 pico-fan manual 75
-
-# Esegui il wizard di configurazione (richiede root)
-sudo pico-fan setup
 
 # Visualizza versione installata
 pico-fan version

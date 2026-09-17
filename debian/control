@@ -1,30 +1,29 @@
 Source: pico-fan
 Section: utils
 Priority: optional
-Maintainer: pico-fan-control project <pico-fan@example.com>
+Maintainer: albeph
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.6.2
-Homepage: https://github.com/pico-fan-control/pico-fan-control
-Rules-Requires-Root: no
+Homepage: https://github.com/albeph/pico-fan-control
+Rules-Requires-Root: yes
 
 Package: pico-fan
-Maintainer: pico-fan-control project <pico-fan@example.com>
-Version: 1.0.0
+Maintainer: albeph
 Architecture: all
 Depends: python3 (>= 3.9),
  python3-serial,
  lm-sensors,
  udev
 Recommends: minicom
-Description: Controllo ventola USB via Raspberry Pi Pico CLI Status
- pico-fan-control gestisce una ventola a 4 pin collegata a un Raspberry Pi Pico
- tramite interfaccia USB CDC seriale. Include:
+Description: USB fan control via Raspberry Pi Pico CLI and daemon
+ pico-fan-control manages a 4-pin fan connected to a Raspberry Pi Pico
+ via USB CDC serial interface. Features include:
  .
-  - Firmware MicroPython per RP2040 (PWM 25kHz + tachimetro interrupt)
-  - Interfaccia CLI "pico-fan-status" per la diagnostica in tempo reale
-  - Demone di sincronizzazione RPM fault-tolerant
-  - Wizard interattivo di configurazione
-  - Integrazione completa systemd e udev
+  - MicroPython firmware for RP2040 (25 kHz PWM + interrupt tachometer)
+  - Unified CLI interface with real-time diagnostics and manual override
+  - Background RPM synchronization daemon
+  - Interactive configuration wizard
+  - Full systemd and udev integration
  .
- La ventola esterna si sincronizza automaticamente con gli RPM della ventola
- interna del sistema (supporto ThinkPad ACPI e hwmon generico).
+ The external fan automatically synchronizes with internal system fan RPM
+ (supporting ThinkPad ACPI and generic hwmon).

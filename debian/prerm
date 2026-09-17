@@ -1,11 +1,9 @@
 #!/bin/sh
-# debian/prerm - Script pre-rimozione pico-fan
-# ============================================
-# Eseguito prima della rimozione del pacchetto.
-# Si occupa di:
-#   1. Fermare e disabilitare il servizio systemd
-#   2. Scaricare il modulo kernel dal kernel live
-#   3. Rimuovere il modulo da DKMS
+# debian/prerm - Pre-removal script for pico-fan
+# ===============================================
+# Executed before package removal.
+# Responsibilities:
+#   1. Stop and disable systemd service
 
 set -e
 
@@ -24,7 +22,7 @@ info()    { echo "${BOLD}${GREEN}[pico-fan]${RESET} $*"; }
 warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
 
 # ---------------------------------------------------------------------------
-# Funzione: stop e disabilitazione servizio systemd
+# Function: stop and disable systemd service
 # ---------------------------------------------------------------------------
 systemd_stop() {
     if command -v systemctl > /dev/null 2>&1; then

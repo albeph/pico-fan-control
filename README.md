@@ -1,6 +1,6 @@
 # pico-fan-control
 
-> **Controllo ventola USB via Raspberry Pi Pico / RP2040 (Userspace IPC Daemon)**
+> **USB Fan Control via Raspberry Pi Pico / RP2040 (Userspace IPC Daemon)**
 
 [![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)](https://github.com)
 [![Linux](https://img.shields.io/badge/Linux-Userspace%20Daemon-blue?logo=linux)](https://github.com)
@@ -9,32 +9,32 @@
 
 ---
 
-## Panoramica
+## Overview
 
-`pico-fan-control` è un sistema completo per controllare una **ventola a 4 pin** tramite un **Raspberry Pi Pico (RP2040)** collegato via USB, sincronizzandola automaticamente con la ventola interna del sistema (ThinkPad o hwmon generico).
+`pico-fan-control` is a complete system to control a **4-pin fan** via a **Raspberry Pi Pico (RP2040)** connected over USB, automatically synchronizing it with the system's internal fan (ThinkPad or generic hwmon).
 
-### Caratteristiche principali
+### Key Features
 
-| Feature | Dettaglio |
+| Feature | Details |
 |---|---|
-| **Firmware** | MicroPython su RP2040, PWM 25 kHz, tachimetro IRQ |
-| **Architettura** | 100% Userspace IPC Unix Socket (`/run/pico-fan.sock`), nessun modulo kernel / zero kernel-headers |
-| **Demone** | Fault-tolerant, riconnessione USB automatica, CPU < 0.1% |
-| **Packaging** | Pacchetto `.deb` nativo per Debian / Ubuntu / Proxmox |
-| **CLI Unificata** | Comando unico `pico-fan` con sottocomandi (`setup`, `status`, `manual`, `version`, `daemon`) |
-| **Integrazione** | systemd, udev, journald |
+| **Firmware** | MicroPython on RP2040, 25 kHz PWM, interrupt tachometer IRQ |
+| **Architecture** | 100% Userspace IPC Unix Socket (`/run/pico-fan.sock`), no kernel modules / zero kernel-headers |
+| **Daemon** | Fault-tolerant, automatic USB reconnection, CPU < 0.1% |
+| **Packaging** | Native `.deb` package for Debian / Ubuntu / Proxmox |
+| **Unified CLI** | Single `pico-fan` command with subcommands (`setup`, `status`, `manual`, `version`, `daemon`) |
+| **Integration** | systemd, udev, journald |
 
 ---
 
-## Architettura
+## Architecture
 
 ```
                     ┌──────────────────────────────────────────┐
-                    │            HOST LINUX                    │
+                    │            LINUX HOST                    │
                     │                                          │
   ┌──────────┐      │  ┌─────────────┐    ┌────────────────────────┐   │
-  │ Ventola  │      │  │ fan_daemon  │───▶│ Socket IPC             │   │
-  │ interna  │─────▶│  │   .py       │    │ UNIX (/run/            │   │
+  │ Internal │      │  │ fan_daemon  │───▶│ IPC Socket             │   │
+  │ fan      │─────▶│  │   .py       │    │ UNIX (/run/            │   │
   │ (hwmon / │ RPM  │  │             │    │ pico-fan.sock)         │   │
   │  ACPI)   │      │  │  SET <duty> │    └───────┬────────────────┘   │
   └──────────┘      │  │  RPM query  │            │                    │
@@ -47,204 +47,155 @@
        │ PWM        │  └─────────────┘                                 │
        ▼            │                                                  │
   ┌──────────┐      └──────────────────────────────────────────────────┘
-  │ Ventola  │
-  │ esterna  │
+  │ External │
   │ 4-pin    │
+  │ fan      │
   └──────────┘
 ```
 
 ---
 
-## Struttura del repository
-
-> ℹ️ Per la mappa dettagliata e spiegazione di ogni singolo file, consulta STRUCTURE.md.
-
-```
-pico-fan-control/
-├── VERSION                   # Versione del pacchetto (es. 1.1.7)
-├── Makefile                  # Build, test e packaging
-├── README.md                 # Guida rapida e panoramica
-├── STRUCTURE.md              # Descrizione dettagliata dell'albero delle directory
-├── RELAZIONE_PROGETTO.md     # Report completo di sviluppo e cronologia dei round
-├── firmware/
-│   └── main.py               # Firmware MicroPython RP2040
-├── daemon/
-│   ├── fan_daemon.py         # Demone sincronizzazione RPM e IPC server
-│   ├── hardware_detector.py # Scanner porte seriali Pico
-│   └── version.py            # Risoluzione versione runtime
-├── cli/
-│   ├── main.py               # Dispatcher CLI unificato (pico-fan)
-│   ├── setup_wizard.py       # Wizard CLI (pico-fan setup)
-│   ├── status.py             # Diagnostica CLI (pico-fan status)
-│   └── manual.py             # Controllo manuale (pico-fan manual)
-├── systemd/
-│   └── pico-fan.service      # Unit systemd
-├── udev/
-│   └── 99-pico-fan.rules       # Permessi seriale + symlink
-├── debian/
-│   ├── control                 # Metadati pacchetto
-│   ├── postinst                # Hook post-install
-│   ├── prerm                   # Hook pre-rimozione
-│   └── postrm                  # Hook post-rimozione
-├── configs/
-│   └── config.json.example    # Template configurazione
-├── scripts/
-│   ├── build_deb.sh           # Build pacchetto .deb
-│   └── test_local.sh          # Test suite locale
-├── Makefile                    # Target principali
-└── README.md                   # Questa documentazione
-```
-
----
-
-## Requisiti hardware
+## Hardware Requirements
 
 ### Raspberry Pi Pico / RP2040
-- Qualsiasi scheda basata su RP2040 con USB CDC
-- MicroPython >= 1.20 installato
-- Cavo USB-A ↔ micro-USB (o USB-C a seconda del modello)
+- Any RP2040-based board with USB CDC
+- MicroPython >= 1.20 installed
+- USB-A ↔ micro-USB cable (or USB-C depending on board model)
 
-> ℹ️ Risulta completamente funzionante anche con Raspberry Pi Pico 2W 
+> ℹ️ Fully tested and working on Raspberry Pi Pico 2W as well
 
-### Ventola
-- Ventola a **4 pin** standard (12V o 5V)
-- Connettore: +V, GND, TACH (segnale), PWM (controllo)
+### Fan
+- Standard **4-pin** fan (12V or 5V)
+- Connector: +V, GND, TACH (signal), PWM (control)
 
-### Piedinatura hardware
+### Hardware Pinout
 
 ```
-Ventola (4 pin)          Raspberry Pi Pico
+Fan (4 pins)             Raspberry Pi Pico
 ─────────────────────────────────────────────
-Pin 1 - GND          ──▶  GND (es. Pin 38)
-Pin 2 - +12V/5V      ──▶  Alimentazione esterna (non dal Pico!)
-Pin 3 - TACH (verde) ──▶  GP14 (Pin 19)
-Pin 4 - PWM  (blu)   ──▶  GP15 (Pin 20)
+Pin 1 - GND          ──▶  GND (e.g. Pin 38)
+Pin 2 - +12V/5V      ──▶  External power supply (not from the Pico!)
+Pin 3 - TACH (green) ──▶  GP14 (Pin 19)
+Pin 4 - PWM  (blue)  ──▶  GP15 (Pin 20)
 ```
 
-> **⚠️ Attenzione**: Non alimentare una ventola a 12V direttamente dal Pico. Andrebbe a velocità troppo basse
-> Nel mio usecase, ho collegato la ventola con l'alimentatore da 12 V, ho fatto in modo che facesse contatto incastrando il jumper collegato al GND del Pico, con il Ground dell'alimentatore
+> **⚠️ Warning**: Do not power a 12V fan directly from the Pico. It would run at too low a speed.
+> In my use case, I connected the fan with a 12V power supply, ensuring common ground by bridging the jumper connected to the Pico's GND with the power supply's Ground.
 
-### Schema di collegamento
+### Wiring Diagram
 
 ```
-Alimentatore 12V
-    +12V ──────────────────────────────▶ Pin 2 ventola
-    GND  ──────┬──────────────────────▶ Pin 1 ventola
+12V Power Supply
+    +12V ──────────────────────────────▶ Fan Pin 2
+    GND  ──────┬──────────────────────▶ Fan Pin 1
                │
-    Pico GND ──┘  (GND comune OBBLIGATORIO)
-    Pico GP15 ────(resistore 1kΩ pull-up opzionale)──▶ Pin 4 ventola (PWM)
-    Pico GP14 ◀───(diretta o con resistore 10kΩ)────── Pin 3 ventola (TACH)
+    Pico GND ──┘  (Common GND is MANDATORY)
+    Pico GP15 ────(optional 1kΩ pull-up resistor)──▶ Fan Pin 4 (PWM)
+    Pico GP14 ◀───(direct or with 10kΩ resistor)─── Fan Pin 3 (TACH)
 ```
 
 ---
 
-## Installazione rapida
+## Quick Installation
 
-### 1. Installa il pacchetto Debian
+### 1. Install the Debian package
 
 ```bash
-# Genera il pacchetto
+# Build the package
 make deb
 
-# Installa
+# Install
 sudo dpkg -i pico-fan_1.0.0_all.deb
 
-# Risolvi eventuali dipendenze mancanti
+# Resolve any missing dependencies
 sudo apt -f install
 ```
 
-### 2. Carica il firmware sul Pico
+### 2. Flash firmware onto Pico
 
 ```bash
-# Con mpremote (installare: pip install mpremote)
+# Using mpremote (install: pip install mpremote)
 mpremote connect /dev/ttyACM0 cp firmware/main.py :main.py
 
-# Oppure con Thonny IDE (tool grafico)
+# Or using Thonny IDE (graphical tool)
 
-# Oppure con VS Code + Extension per Raspberry Pi Pico (tool grafico)
+# Or using VS Code + Raspberry Pi Pico extension (graphical tool)
 ```
 
-### 3. Esegui il wizard di configurazione
+### 3. Run the configuration wizard
 
 ```bash
 sudo pico-fan setup
 ```
 
-Il wizard guiderà attraverso:
-- ✅ Rilevamento automatico del Pico in `/dev/serial/by-id/`
-- ✅ Test della ventola (25% → 50% → 100% → 0%)
-- ✅ Ricerca e impostazione automatica del **duty cycle ottimale** per la velocità massima
-- ✅ Selezione della ventola interna da monitorare
-- ✅ Configurazione soglie RPM
-- ✅ Salvataggio in `/etc/pico-fan/config.json`
+The wizard will guide you through:
+- ✅ Automatic Pico detection in `/dev/serial/by-id/`
+- ✅ Fan testing (25% → 50% → 100% → 0%)
+- ✅ Automatic search and detection of the **optimal duty cycle** for maximum speed
+- ✅ Selection of the internal fan to monitor
+- ✅ RPM threshold configuration
+- ✅ Saving to `/etc/pico-fan/config.json`
 
-
-### 4. Avvia il demone
-
-```bash
-sudo systemctl start pico-fan
-sudo systemctl enable pico-fan   # Avvio automatico al boot
-```
+Once the wizard completes, the service is automatically started and enabled.
 
 ---
 
-## Interfaccia CLI `pico-fan`
+## CLI Interface `pico-fan`
 
-Tutti i comandi sono centralizzati nell'eseguibile unico `pico-fan`:
+All commands are centralized within the single `pico-fan` executable:
 
 ```bash
-# Mostra la guida dei comandi disponibili
+# Show available commands help
 pico-fan
 
-# Diagnostica istantanea: RPM interno, RPM Pico, duty %, porta seriale
-pico-fan status
-
-# Controllo manuale temporaneo (es. porta la ventola al 75% e monitora i giri; Ctrl+C ripristina il controllo automatico)
-pico-fan manual 75
-
-# Esegui il wizard di configurazione (richiede root)
+# Run configuration wizard (requires root)
 sudo pico-fan setup
 
-# Visualizza versione installata
+# Instant diagnostics: internal RPM, Pico RPM, duty %, serial port
+pico-fan status
+
+# Temporary manual control (e.g. set fan to 75% and monitor RPM; Ctrl+C restores automatic control)
+pico-fan manual 75
+
+# Display installed version
 pico-fan version
 ```
 
+## Serial Protocol
 
-## Protocollo seriale
+The firmware communicates over the USB CDC port at 115200 baud.
 
-Il firmware risponde sulla porta USB CDC a 115200 baud.
-
-| Comando | Risposta | Descrizione |
+| Command | Response | Description |
 |---|---|---|
-| `RPM` | `RPM:2850 DUTY:50%` | Legge RPM e duty corrente |
-| `GET` | `RPM:2850 DUTY:50%` | Alias per RPM |
-| `SET 75` | `OK` | Imposta duty al 75% |
-| `75` | `OK` | Alias numerico per SET |
+| `RPM` | `RPM:2850 DUTY:50%` | Reads current RPM and duty cycle |
+| `GET` | `RPM:2850 DUTY:50%` | Alias for RPM |
+| `SET 75` | `OK` | Sets duty cycle to 75% |
+| `75` | `OK` | Numeric alias for SET |
 
 ```bash
-# Test manuale
+# Manual test
 echo "RPM" | sudo tee /dev/ttyACM0
 cat /dev/ttyACM0
 
-# Oppure con minicom
+# Or with minicom
 minicom -D /dev/ttyACM0 -b 115200
 ```
 
 ---
 
-## Curva di funzionamento
+## Operating Curve
 
-| RPM ventola interna | Duty ventola esterna |
+| Internal fan RPM | External fan duty |
 |---|---|
-| > 4000 RPM | **100%** (massima velocità) |
-| 2500 – 4000 RPM | **50%** (velocità media) |
-| < 2500 RPM | **0%** (spenta) |
+| > 4000 RPM | **100%** (maximum speed) |
+| 2500 – 4000 RPM | **50%** (medium speed) |
+| < 2500 RPM | **0%** (off) |
 
-Le soglie sono configurabili in `/etc/pico-fan/config.json`.
+Thresholds are configurable in `/etc/pico-fan/config.json`.
 
 ---
 
-## Configurazione
+## Configuration
 
 File: `/etc/pico-fan/config.json`
 
@@ -264,34 +215,34 @@ File: `/etc/pico-fan/config.json`
 
 ---
 
-## Sviluppo e test
+## Development and Testing
 
 ```bash
-# Test suite completa (senza hardware)
+# Full test suite (without hardware)
 make test
 
-# Test rapido (solo sintassi Python e Bash)
+# Quick test (Python and Bash syntax only)
 make test-quick
 
-# Test con Pico collegato
+# Test with Pico connected
 make test-hw
 
-# Genera pacchetto .deb
+# Build .deb package
 make deb
 
-# Pulizia file temporanei di build
+# Clean temporary build files
 make clean
 ```
 
 ---
 
-## Rimozione
+## Uninstallation
 
 ```bash
-# Rimuove pacchetto (conserva /etc/pico-fan/config.json)
+# Remove package (preserves /etc/pico-fan/config.json)
 sudo apt remove pico-fan
 
-# Rimozione completa inclusa configurazione
+# Full removal including configuration
 sudo apt purge pico-fan
 ```
 
@@ -299,27 +250,26 @@ sudo apt purge pico-fan
 
 ## Troubleshooting
 
-### Il Pico non viene rilevato
+### Pico is not detected
 ```bash
 ls /dev/serial/by-id/
 lsusb | grep -i "2e8a"
 dmesg | tail -20 | grep -i "usb\|cdc\|acm"
 ```
 
-### Il demone non si avvia
-Verifica lo stato del servizio systemd:
+### Daemon fails to start
+Check the systemd service status:
 ```bash
 sudo systemctl status pico-fan
 journalctl -u pico-fan -n 50 --no-pager
 ```
-*Se il file di configurazione `/etc/pico-fan/config.json` è mancante, esegui prima:*
+*If configuration file `/etc/pico-fan/config.json` is missing, run setup first:*
 ```bash
 sudo pico-fan setup
-sudo systemctl restart pico-fan
 ```
 
-### Il comando `pico-fan status` o `manual` dice "connessione rifiutata / socket non trovato"
-Assicurati che il demone sia attivo:
+### The `pico-fan status` or `manual` command reports "connection refused / socket not found"
+Ensure the daemon is active:
 ```bash
 sudo systemctl status pico-fan
 ls -l /run/pico-fan.sock
@@ -327,6 +277,6 @@ ls -l /run/pico-fan.sock
 
 ---
 
-## Licenza
+## License
 
-GPL v2 — Vedi [LICENSE](LICENSE) per i dettagli.
+GPL v2 — See [LICENSE](LICENSE) for details.

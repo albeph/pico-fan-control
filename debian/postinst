@@ -1,11 +1,10 @@
 #!/bin/sh
-# debian/postinst - Script post-installazione pico-fan
-# =====================================================
-# Eseguito automaticamente da dpkg dopo l'installazione del pacchetto.
-# Si occupa di:
-#   1. Abilitare il servizio systemd
-#   2. Ricaricare le regole udev
-#   3. Creare la directory di configurazione
+# debian/postinst - Post-installation script for pico-fan
+# =======================================================
+# Automatically executed by dpkg after package installation.
+# Responsibilities:
+#   1. Prepare systemd daemon service
+#   2. Create configuration directory
 
 set -e
 
@@ -13,7 +12,7 @@ PACKAGE_NAME="pico-fan"
 INSTALL_LIB="/usr/lib/pico-fan"
 CONFIG_DIR="/etc/pico-fan"
 
-# Colori (opzionali, solo se terminale interattivo)
+# Colors (optional, only in interactive terminal)
 if [ -t 1 ]; then
     GREEN="\033[92m"
     YELLOW="\033[93m"
@@ -29,36 +28,27 @@ warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
 error()   { echo "${BOLD}${RED}[pico-fan] ERRORE:${RESET} $*" >&2; }
 
 # ---------------------------------------------------------------------------
-# Funzione: configurazione systemd
+# Function: systemd configuration
 # ---------------------------------------------------------------------------
 systemd_setup() {
     if command -v systemctl > /dev/null 2>&1; then
         info "Ricarica configurazione systemd ..."
         systemctl daemon-reload
 
-        info "Abilitazione e avvio servizio pico-fan ..."
-        systemctl enable --now pico-fan.service 2>/dev/null || \
-            warning "Impossibile abilitare/avviare il servizio systemd"
-
-        info "Servizio abilitato e avviato."
+        if [ -n "$1" ] && [ -f "${CONFIG_DIR}/config.json" ]; then
+            info "Riavvio servizio pico-fan dopo l'aggiornamento ..."
+            systemctl restart pico-fan.service 2>/dev/null || \
+                warning "Impossibile riavviare il servizio systemd"
+        else
+            info "Servizio pico-fan pronto: verrà avviato al termine della configurazione."
+        fi
     else
         warning "systemd non disponibile."
     fi
 }
 
 # ---------------------------------------------------------------------------
-# Funzione: configurazione udev
-# ---------------------------------------------------------------------------
-udev_setup() {
-    info "Ricarica regole udev ..."
-    if command -v udevadm > /dev/null 2>&1; then
-        udevadm control --reload-rules 2>/dev/null || true
-        udevadm trigger --subsystem-match=tty 2>/dev/null || true
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Funzione: creazione directory di configurazione
+# Function: create configuration directory
 # ---------------------------------------------------------------------------
 config_setup() {
     if [ ! -d "${CONFIG_DIR}" ]; then
@@ -67,7 +57,7 @@ config_setup() {
         info "Directory configurazione creata: ${CONFIG_DIR}"
     fi
 
-    # Crea configurazione di esempio se non esiste
+    # Create example configuration if none exists
     if [ ! -f "${CONFIG_DIR}/config.json" ] && \
        [ -f "${INSTALL_LIB}/config.json.example" ]; then
         cp "${INSTALL_LIB}/config.json.example" "${CONFIG_DIR}/config.json.example"
@@ -83,19 +73,17 @@ case "$1" in
         info "=== Post-installazione pico-fan ==="
 
         config_setup
-        systemd_setup
-        udev_setup
+        systemd_setup "$2"
 
         echo ""
-        # $2 è la versione precedente in caso di upgrade, vuoto alla prima installazione
+        # $2 is the previous version during upgrade, empty on initial install
         if [ -z "$2" ]; then
             info "=== Installazione completata! ==="
             echo ""
             echo "  Prossimi passi:"
             echo "  1. Collegare il Raspberry Pi Pico via USB"
             echo "  2. Eseguire il wizard: sudo pico-fan setup"
-            echo "  3. Riavviare il demone: sudo systemctl restart pico-fan"
-            echo "  4. Verificare stato: pico-fan status"
+            echo "  3. Verificare stato: pico-fan status"
         else
             info "=== Aggiornamento completato! (${2} → $(cat /usr/lib/pico-fan/VERSION 2>/dev/null || echo '?')) ==="
         fi

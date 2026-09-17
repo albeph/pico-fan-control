@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-fan_daemon.py - Demone principale di sincronizzazione RPM
-==========================================================
+fan_daemon.py - Main RPM Synchronization Daemon
+=================================================
+Reads internal system fan RPM (from /proc/acpi/ibm/fan or hwmon)
+and dynamically controls the external USB fan (Raspberry Pi Pico)
+according to configurable RPM thresholds and duty cycles.
 
-Legge gli RPM della ventola interna del ThinkPad (da /proc/acpi/ibm/fan
-o da hwmon) e controlla la ventola esterna USB (Pico) in base a soglie.
-
-Curva di funzionamento:
-  RPM interni > 4000  -> Ventola esterna a 100% (SET 100)
-  2500 <= RPM <= 4000 -> Ventola esterna a 50%  (SET 50)
-  RPM < 2500          -> Ventola esterna a 0%   (SET 0)
-
-Autore:   pico-fan-control project
-Versione: 1.0.0
+Operating curve overview:
+  Internal RPM > 4000  -> External fan at 100% (SET 100)
+  2500 <= RPM <= 4000 -> External fan at 50%  (SET 50)
+  Internal RPM < 2500  -> External fan at 0%   (SET 0)
 """
 
 from __future__ import annotations
@@ -20,11 +17,9 @@ from __future__ import annotations
 import os
 import sys
 import json
-import time
 import socket
 import signal
 import logging
-import logging.handlers
 import threading
 from pathlib import Path
 
@@ -36,22 +31,23 @@ except ImportError:
     __version__ = "unknown"
 
 try:
-    import serial
+    from pico_adapter import PicoAdapter
     import serial.serialutil
 except ImportError:
-    raise SystemExit("Errore: pyserial non installato. pip install pyserial")
+    raise SystemExit("Errore: pyserial o pico_adapter non disponibile")
 
 # ---------------------------------------------------------------------------
-# Configurazione logging
+# Logging configuration
 # ---------------------------------------------------------------------------
 logger = logging.getLogger("fan_daemon")
 
 # ---------------------------------------------------------------------------
-# Costanti
+# Constants
 # ---------------------------------------------------------------------------
 CONFIG_PATH     = "/etc/pico-fan/config.json"
 DEFAULT_CONFIG  = {
     "pico_serial_by_id":  "",
+    "internal_fan_type":  "ibm_acpi",
     "rpm_threshold_high": 4000,
     "rpm_threshold_mid":  2500,
     "duty_high":          100,
@@ -59,22 +55,22 @@ DEFAULT_CONFIG  = {
     "duty_low":           0,
     "poll_interval":      2.0,
     "reconnect_interval": 5.0,
-    "hwmon_path":         "",    # Auto-rilevato se vuoto
+    "hwmon_fan_path":      "",    # Auto-detected if empty
     "ibm_fan_path":       "/proc/acpi/ibm/fan",
 }
 
-BAUDRATE              = 115200
-SERIAL_TIMEOUT        = 2.0
 # ===========================================================================
-# Lettura RPM ventola interna
+# Internal fan RPM reading
 # ===========================================================================
 
 def read_internal_rpm_ibm(ibm_fan_path: str) -> Optional[int]:
     """
-    Legge gli RPM da /proc/acpi/ibm/fan (ThinkPad).
-    Formato atteso: "speed:      2800"
+    Reads RPM from /proc/acpi/ibm/fan (ThinkPad).
+    Expected line format: "speed:      2800"
     """
     try:
+        if not os.path.exists(ibm_fan_path):
+            return None
         with open(ibm_fan_path) as f:
             for line in f:
                 line = line.strip()
@@ -87,16 +83,27 @@ def read_internal_rpm_ibm(ibm_fan_path: str) -> Optional[int]:
     return None
 
 
-def read_internal_rpm_hwmon() -> Optional[int]:
+def read_internal_rpm_hwmon(fan_file: str | Path | None = None) -> Optional[int]:
     """
-    Lettura RPM da hwmon generica (es. /sys/class/hwmon/hwmon*/fan1_input).
+    Reads RPM from hwmon.
+
+    If a specific file is given, reads only that path; otherwise discovers the first
+    valid reading in /sys/class/hwmon/hwmon*/fan*_input.
     """
+    if fan_file is not None:
+        try:
+            if not Path(fan_file).exists():
+                return None
+            return int(Path(fan_file).read_text().strip())
+        except (OSError, ValueError):
+            return None
+
     base = Path("/sys/class/hwmon")
     if not base.exists():
         return None
 
     for hwmon_dir in sorted(base.iterdir()):
-        # Cerca file fan*_input in questo hwmon
+        # Search fan*_input files in this hwmon directory
         for fan_file in sorted(hwmon_dir.glob("fan*_input")):
             try:
                 rpm = int(fan_file.read_text().strip())
@@ -111,31 +118,31 @@ def read_internal_rpm_hwmon() -> Optional[int]:
 
 def read_internal_rpm(config: dict) -> int:
     """
-    Legge gli RPM della ventola interna usando la strategia migliore disponibile.
-    Priorità: /proc/acpi/ibm/fan -> hwmon generico -> 0 (fallback sicuro)
+    Reads RPM from the chosen internal fan source.
     """
+    selected_type = config.get("internal_fan_type", "ibm_acpi")
     ibm_path = config.get("ibm_fan_path", DEFAULT_CONFIG["ibm_fan_path"])
+    hwmon_path = config.get("hwmon_fan_path", "")
 
-    if os.path.exists(ibm_path):
+    # Prioritize the source selected during the setup wizard
+    if selected_type == "hwmon":
+        rpm = read_internal_rpm_hwmon(hwmon_path)
+    else:
         rpm = read_internal_rpm_ibm(ibm_path)
-        if rpm is not None:
-            return rpm
 
-    rpm = read_internal_rpm_hwmon()
     if rpm is not None:
         return rpm
-
-    logger.warning("Impossibile leggere RPM interni, uso 0 come fallback")
-    return 0
+    else:
+        return 0
 
 
 # ===========================================================================
-# Curva ventola: calcolo duty target
+# Fan curve: target duty calculation
 # ===========================================================================
 
 def compute_target_duty(rpm: int, config: dict) -> int:
     """
-    Calcola il duty cycle target basato sugli RPM interni e le soglie.
+    Computes target duty cycle based on internal RPM and configured thresholds.
     """
     high_thr = config.get("rpm_threshold_high", DEFAULT_CONFIG["rpm_threshold_high"])
     mid_thr  = config.get("rpm_threshold_mid",  DEFAULT_CONFIG["rpm_threshold_mid"])
@@ -152,35 +159,35 @@ def compute_target_duty(rpm: int, config: dict) -> int:
 
 
 # ===========================================================================
-# Classe FanDaemon
+# FanDaemon Class
 # ===========================================================================
 
 class FanDaemon:
     """
-    Demone principale: gestisce il ciclo di vita della connessione seriale,
-    legge gli RPM interni e controlla la ventola esterna in modo fault-tolerant.
+    Main daemon: manages serial connection lifecycle, reads internal RPM,
+    controls external fan with fault tolerance, and serves IPC requests.
     """
 
     def __init__(self, config: dict):
         self.config          = config
         self.running         = True
-        self.current_duty    = -1          # -1 = non ancora inviato
-        self.serial_conn: Optional[serial.Serial] = None
+        self.current_duty    = -1          # -1 = not yet transmitted
+        self.pico_adapter: Optional[PicoAdapter] = None
         self.pico_port: str  = ""
         self.pico_rpm: int   = 0
         self.internal_rpm: int = 0
         self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
-        self._stop_event     = threading.Event()  # usato per sleep interrompibile senza polling
-        self.manual_mode     = False              # True quando l'utente ha preso il controllo
-        self.manual_duty     = 0                  # Duty impostato manualmente
+        self._stop_event     = threading.Event()  # used for interruptible sleep without busy-polling
+        self.manual_mode     = False              # True when user has taken manual control
+        self.manual_duty     = 0                  # Manually specified duty cycle
 
     # -------------------------------------------------------------------
-    # Setup iniziale e IPC
+    # Initial setup and IPC
     # -------------------------------------------------------------------
 
     def _start_ipc_server(self) -> None:
-        """Avvia un server socket UNIX per fornire lo stato alla CLI."""
+        """Starts a UNIX domain socket server to serve status and control to CLI clients."""
         if os.path.exists(self.sock_path):
             try:
                 os.remove(self.sock_path)
@@ -191,7 +198,7 @@ class FanDaemon:
             self.server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.server_sock.bind(self.sock_path)
             self.server_sock.listen(5)
-            os.chmod(self.sock_path, 0o666)  # Permette lettura a tutti gli utenti
+            os.chmod(self.sock_path, 0o600)  # Accessible only to daemon and root
         except Exception as exc:
             logger.error("Impossibile creare socket IPC: %s", exc)
             return
@@ -201,7 +208,7 @@ class FanDaemon:
                     self.server_sock.settimeout(1.0)
                     conn, _ = self.server_sock.accept()
                     try:
-                        # Legge eventuale comando dal client (max 64 byte)
+                        # Read command from client (max 64 bytes)
                         conn.settimeout(0.5)
                         try:
                             raw = conn.recv(64).decode("utf-8", errors="replace").strip()
@@ -209,31 +216,31 @@ class FanDaemon:
                             raw = ""
 
                         if raw.upper().startswith("SET "):
-                            # Modalità manuale: imposta duty e sospende il controllo automatico
+                            # Manual mode: set fixed duty cycle and suspend automatic control
                             try:
                                 duty = max(0, min(100, int(raw.split()[1])))
                                 with self._lock:
                                     self.manual_mode = True
                                     self.manual_duty = duty
-                                    self.current_duty = -1  # forza ri-invio al prossimo ciclo
+                                    self.current_duty = -1  # force re-transmission on next cycle
                                 logger.info("Modalità manuale attivata: duty=%d%%", duty)
                                 conn.sendall(b"OK\n")
                             except (ValueError, IndexError):
                                 conn.sendall(b"ERR duty non valido\n")
 
                         elif raw.upper() == "RESUME":
-                            # Ripristina il controllo automatico
+                            # Restore automatic control
                             with self._lock:
                                 self.manual_mode = False
-                                self.current_duty = -1  # forza ri-invio al prossimo ciclo
+                                self.current_duty = -1  # force re-transmission on next cycle
                             logger.info("Controllo automatico ripristinato")
                             conn.sendall(b"OK\n")
 
                         else:
-                            # STATUS (o nessun comando): risponde con lo stato corrente
+                            # STATUS (or empty command): respond with current state JSON
                             with self._lock:
                                 state = {
-                                    "connected":    self.serial_conn is not None,
+                                    "connected":    self.pico_adapter is not None and self.pico_adapter.connected,
                                     "pico_port":    self.pico_port,
                                     "internal_rpm": self.internal_rpm,
                                     "pico_rpm":     self.pico_rpm,
@@ -247,7 +254,7 @@ class FanDaemon:
                         conn.close()
 
                 except socket.timeout:
-                    continue  # atteso: ricontrolla self.running
+                    continue  # expected: check self.running again
                 except Exception as exc:
                     if self.running:
                         logger.error("Errore IPC client: %s", exc)
@@ -256,7 +263,7 @@ class FanDaemon:
         self.ipc_thread.start()
 
     def _stop_ipc_server(self) -> None:
-        """Ferma il server socket IPC e ripulisce il file."""
+        """Stops the IPC socket server and cleans up the socket file."""
         if hasattr(self, "server_sock"):
             try:
                 self.server_sock.close()
@@ -269,8 +276,8 @@ class FanDaemon:
                 pass
 
     def setup(self) -> None:
-        """Inizializza il path del dispositivo Pico."""
-        # Risolvi path seriale
+        """Initializes Pico device path and IPC server."""
+        # Resolve serial path
         by_id = self.config.get("pico_serial_by_id", "")
         if not by_id:
             raise ValueError(
@@ -281,23 +288,23 @@ class FanDaemon:
         real_path = os.path.realpath(by_id)
         if not os.path.exists(real_path):
             logger.warning("Pico non connesso al boot, tentativo di connessione differita")
-            self.pico_port = real_path    # Salva per retry
+            self.pico_port = real_path    # Save for retry
         else:
             self.pico_port = real_path
         
         self._start_ipc_server()
 
     # -------------------------------------------------------------------
-    # Gestione connessione seriale
+    # Serial connection management
     # -------------------------------------------------------------------
 
     def _try_connect(self) -> bool:
         """
-        Tenta di aprire la connessione seriale con il Pico.
-        Restituisce True se riuscito.
+        Attempts to open serial connection with the Pico.
+        Returns True if successful.
         """
         try:
-            # Risolvi di nuovo il symlink (potrebbe essere cambiato)
+            # Re-resolve symlink (device node may have changed)
             by_id = self.config.get("pico_serial_by_id", "")
             real_path = os.path.realpath(by_id) if by_id else self.pico_port
 
@@ -305,15 +312,9 @@ class FanDaemon:
                 logger.debug("Device %s non presente", real_path)
                 return False
 
-            conn = serial.Serial(
-                real_path,
-                baudrate=BAUDRATE,
-                timeout=SERIAL_TIMEOUT,
-            )
-            time.sleep(0.5)         # Attende CDC ready
-            conn.reset_input_buffer()
-
-            self.serial_conn = conn
+            adapter = PicoAdapter(real_path)
+            adapter.connect()
+            self.pico_adapter = adapter
             self.pico_port   = real_path
             logger.info("Connesso a Pico su %s", real_path)
             return True
@@ -323,63 +324,24 @@ class FanDaemon:
             return False
 
     def _disconnect(self) -> None:
-        """Chiude la connessione seriale in modo sicuro."""
-        if self.serial_conn:
-            try:
-                self.serial_conn.close()
-            except Exception:  # pylint: disable=broad-except
-                pass
-            self.serial_conn = None
+        """Closes serial connection cleanly."""
+        if self.pico_adapter:
+            self.pico_adapter.disconnect()
+            self.pico_adapter = None
             logger.info("Connessione seriale chiusa")
 
-    def _send_command(self, cmd: str) -> Optional[str]:
-        """
-        Invia un comando al Pico e legge la risposta.
-        Gestisce automaticamente la disconnessione e ritorna None se fallisce.
-        """
-        if not self.serial_conn:
-            return None
-        try:
-            self.serial_conn.write((cmd + "\n").encode("ascii"))
-            self.serial_conn.flush()
-            response = self.serial_conn.readline().decode("ascii", errors="replace").strip()
-            return response
-        except (serial.serialutil.SerialException, OSError) as exc:
-            logger.warning("Errore comunicazione seriale: %s", exc)
-            self._disconnect()
-            return None
-
-    def _fetch_pico_rpm(self) -> int:
-        """Richiede gli RPM correnti al Pico via seriale."""
-        resp = self._send_command("RPM")
-        if resp and resp.startswith("RPM:"):
-            try:
-                rpm_str = resp.split()[0][4:]
-                return int(rpm_str)
-            except (ValueError, IndexError):
-                pass
-        return 0
-
-    def _set_duty(self, duty: int) -> bool:
-        """
-        Imposta il duty cycle della ventola esterna.
-        Restituisce True se il comando è stato inviato con successo.
-        """
-        resp = self._send_command(f"SET {duty}")
-        return resp == "OK"
-
     # -------------------------------------------------------------------
-    # Loop principale
+    # Main loop
     # -------------------------------------------------------------------
 
     def run(self) -> None:
         """
-        Ciclo principale del demone:
-        1. Connessione (con retry)
-        2. Lettura RPM interni
-        3. Calcolo duty target
-        4. Invio comando solo al cambio soglia
-        5. Lettura RPM ventola esterna
+        Main daemon loop:
+        1. Connection / reconnection (with retry)
+        2. Read internal fan RPM
+        3. Compute target duty cycle
+        4. Transmit command on duty change
+        5. Read external fan RPM
         """
         poll_interval      = self.config.get("poll_interval",      DEFAULT_CONFIG["poll_interval"])
         reconnect_interval = self.config.get("reconnect_interval", DEFAULT_CONFIG["reconnect_interval"])
@@ -388,9 +350,9 @@ class FanDaemon:
 
         while self.running:
             # ----------------------------------------------------------------
-            # Fase 1: Connessione / riconnessione
+            # Phase 1: Connection / reconnection
             # ----------------------------------------------------------------
-            if self.serial_conn is None:
+            if self.pico_adapter is None or not self.pico_adapter.connected:
                 connected = self._try_connect()
                 if not connected:
                     logger.info(
@@ -401,13 +363,13 @@ class FanDaemon:
                     continue
 
             # ----------------------------------------------------------------
-            # Fase 2: Lettura RPM interni
+            # Phase 2: Read internal fan RPM
             # ----------------------------------------------------------------
             self.internal_rpm = read_internal_rpm(self.config)
             logger.debug("RPM interni: %d", self.internal_rpm)
 
             # ----------------------------------------------------------------
-            # Fase 3: Calcolo duty e invio comando (solo al cambio)
+            # Phase 3: Calculate duty and send command (only on change)
             # ----------------------------------------------------------------
             with self._lock:
                 in_manual = self.manual_mode
@@ -426,45 +388,46 @@ class FanDaemon:
                     self.internal_rpm,
                     " [MANUALE]" if in_manual else "",
                 )
-                success = self._set_duty(target_duty)
+                success = self.pico_adapter.set_duty(target_duty)
                 if success:
                     self.current_duty = target_duty
                 else:
                     logger.warning("Invio comando SET fallito")
 
             # ----------------------------------------------------------------
-            # Fase 4: Lettura RPM ventola esterna
+            # Phase 4: Read external fan RPM
             # ----------------------------------------------------------------
-            self.pico_rpm = self._fetch_pico_rpm()
+            pico_rpm, _ = self.pico_adapter.fetch_rpm()
+            self.pico_rpm = pico_rpm or 0
             logger.debug("RPM ventola esterna: %d", self.pico_rpm)
 
             self._sleep_interruptible(poll_interval)
 
-        # Cleanup all'uscita
+        # Cleanup on exit
         self._disconnect()
         self._stop_ipc_server()
         logger.info("Demone terminato")
 
     def _sleep_interruptible(self, seconds: float) -> None:
-        """Sleep bloccante interrompibile da stop().
-        Usa threading.Event: zero wakeup inutili, il thread rimane idle finché
-        non scade il timeout o viene segnalato lo stop.
+        """Interruptible blocking sleep until timeout or stop() signal.
+        Uses threading.Event: zero unnecessary wakeups, thread remains idle
+        until timeout expires or stop is signaled.
         """
         self._stop_event.wait(timeout=seconds)
 
     def stop(self) -> None:
-        """Segnala al demone di terminare il ciclo principale."""
+        """Signals the daemon to terminate its main loop."""
         logger.info("Richiesta di stop ricevuta")
         self.running = False
-        self._stop_event.set()  # Sveglia immediatamente qualsiasi sleep in corso
+        self._stop_event.set()  # Immediately wake up any active sleep
 
 
 # ===========================================================================
-# Caricamento configurazione
+# Configuration loading
 # ===========================================================================
 
 def load_config(path: str = CONFIG_PATH) -> dict:
-    """Carica la configurazione da file JSON, usando i default se mancante."""
+    """Loads configuration from JSON file, falling back to defaults."""
     config = dict(DEFAULT_CONFIG)
     try:
         with open(path) as f:
@@ -483,7 +446,7 @@ def load_config(path: str = CONFIG_PATH) -> dict:
 # ===========================================================================
 
 def setup_logging() -> None:
-    """Configura logging verso stdout (catturato automaticamente da systemd/journald)."""
+    """Configures stdout logging (captured automatically by systemd/journald)."""
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
         level=logging.INFO,
@@ -500,7 +463,7 @@ def main() -> None:
     config = load_config()
     daemon = FanDaemon(config)
 
-    # Gestione segnali POSIX
+    # POSIX signal handling
     def _handle_signal(signum, frame):  # noqa: ARG001
         logger.info("Ricevuto segnale %d", signum)
         daemon.stop()

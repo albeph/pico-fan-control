@@ -8,8 +8,6 @@
 
   "hwmon_fan_path": "",
 
-  "hwmon_path": "",
-
   "rpm_threshold_high": 4000,
   "rpm_threshold_mid":  2500,
   "duty_high":          100,
@@ -21,8 +19,7 @@
 
   "_doc_pico_serial_by_id": "Path stabile in /dev/serial/by-id/ del Raspberry Pi Pico. Generato da pico-fan-setup.",
   "_doc_ibm_fan_path":      "Path per ThinkPad ACPI fan. Default: /proc/acpi/ibm/fan",
-  "_doc_hwmon_fan_path":    "Path sysfs fan hwmon generico. Lasciare vuoto per auto-rilevamento.",
-  "_doc_hwmon_path":        "Path base hwmon del modulo pico_fan. Lasciare vuoto per auto-rilevamento.",
+  "_doc_hwmon_fan_path":    "Path sysfs fan hwmon. Lasciare vuoto per auto-rilevamento.",
   "_doc_rpm_threshold_high":"RPM interni sopra cui la ventola esterna va al 100%",
   "_doc_rpm_threshold_mid": "RPM interni sopra cui la ventola esterna va al 50%",
   "_doc_duty_high":         "Duty cycle (%) quando RPM > rpm_threshold_high",

@@ -1,12 +1,11 @@
 #!/bin/sh
-# debian/postrm - Script post-rimozione pico-fan
-# ================================================
-# Eseguito dopo la rimozione del pacchetto.
-# Si occupa di:
-#   1. Reload systemd
-#   2. Pulizia sorgenti DKMS da /usr/src/
-#   3. Pulizia directory configurazione (solo su purge)
-#   4. Reload regole udev
+# debian/postrm - Post-removal script for pico-fan
+# ===============================================
+# Executed after package removal.
+# Responsibilities:
+#   1. Reload systemd daemon
+#   2. Clean up configuration directory (on purge only)
+#   3. Reload udev rules
 
 set -e
 
@@ -15,6 +14,7 @@ MODULE_VERSION="1.0.0"
 DKMS_SRC="/usr/src/${PACKAGE_NAME}-${MODULE_VERSION}"
 CONFIG_DIR="/etc/pico-fan"
 INSTALL_LIB="/usr/lib/pico-fan"
+UDEV_RULE_FILE="/etc/udev/rules.d/99-pico-fan-device.rules"
 
 if [ -t 1 ]; then
     GREEN="\033[92m" YELLOW="\033[93m" BOLD="\033[1m" RESET="\033[0m"
@@ -26,7 +26,7 @@ info()    { echo "${BOLD}${GREEN}[pico-fan]${RESET} $*"; }
 warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
 
 # ---------------------------------------------------------------------------
-# Funzione: reload systemd
+# Function: reload systemd
 # ---------------------------------------------------------------------------
 systemd_reload() {
     if command -v systemctl > /dev/null 2>&1; then
@@ -37,7 +37,7 @@ systemd_reload() {
 }
 
 # ---------------------------------------------------------------------------
-# Funzione: pulizia configurazione (solo su purge)
+# Function: cleanup configuration (purge only)
 # ---------------------------------------------------------------------------
 cleanup_config() {
     if [ -d "${CONFIG_DIR}" ]; then
@@ -47,10 +47,14 @@ cleanup_config() {
     if [ -d "${INSTALL_LIB}" ]; then
         rm -rf "${INSTALL_LIB}" 2>/dev/null || true
     fi
+    if [ -f "${UDEV_RULE_FILE}" ]; then
+        info "Rimozione regola udev generata: ${UDEV_RULE_FILE} ..."
+        rm -f "${UDEV_RULE_FILE}"
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# Funzione: reload udev
+# Function: reload udev
 # ---------------------------------------------------------------------------
 udev_reload() {
     if command -v udevadm > /dev/null 2>&1; then

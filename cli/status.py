@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-status.py - CLI tool per controllare lo stato di pico-fan-control
-==================================================================
-
-Interroga il demone in esecuzione tramite socket UNIX e stampa
-una tabella riassuntiva formattata.
+status.py - CLI Status Diagnostic Tool
+=======================================
+Queries the running pico-fan daemon via UNIX domain socket and displays
+a formatted summary table of device connection, internal RPM, Pico RPM,
+and target PWM duty cycle.
 """
 
 import sys
@@ -19,7 +19,7 @@ def main():
         cprint("Il demone pico-fan è in esecuzione? Controlla con: systemctl status pico-fan")
         sys.exit(1)
 
-    # Parsing dati
+    # Parse received state
     connected = state.get("connected", False)
     port = state.get("pico_port", "N/A")
     int_rpm = state.get("internal_rpm", 0)
@@ -27,7 +27,7 @@ def main():
     duty = state.get("current_duty", 0)
     version = state.get("version", "unknown")
 
-    # Formattazione
+    # Format output strings
     status_str = f"{GREEN}Connesso{RESET}" if connected else f"{RED}Scollegato{RESET}"
     
     cprint(f"\n=== pico-fan-control v{version} ===\n", CYAN, bold=True)

@@ -1,12 +1,12 @@
 """
-version.py - Sorgente unica della versione per pico-fan-control
-================================================================
-Tutti i moduli Python importano __version__ da qui.
+version.py - Single Version Source for pico-fan-control
+=========================================================
+All Python modules import __version__ from here.
 
-Strategia di risoluzione (in ordine di priorità):
-  1. File VERSION installato in /usr/lib/pico-fan/VERSION  (runtime, .deb)
-  4. "0.0.0+unknown"                                       (fallback sicuro)
-
+Resolution strategy (in order of priority):
+  1. VERSION file installed in /usr/lib/pico-fan/VERSION (runtime, .deb package)
+  2. VERSION file in parent repository root (development environment)
+  3. "0.0.0+unknown" (safe fallback)
 """
 
 from __future__ import annotations
@@ -16,19 +16,19 @@ import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Candidati per il file VERSION (in ordine di priorità)
+# Candidates for VERSION file (in order of priority)
 # ---------------------------------------------------------------------------
 _THIS_DIR = Path(__file__).parent.resolve()
 
 _VERSION_CANDIDATES: list[Path] = [
-    Path("/usr/lib/pico-fan/VERSION"),          # installato via .deb
-    _THIS_DIR.parent / "VERSION",               # daemon/ → root repo
-    _THIS_DIR / "VERSION",                      # se copiato localmente
+    Path("/usr/lib/pico-fan/VERSION"),          # installed via .deb
+    _THIS_DIR.parent / "VERSION",               # daemon/ -> repo root
+    _THIS_DIR / "VERSION",                      # if copied locally
 ]
 
 
 def _read_version_file() -> str | None:
-    """Legge il file VERSION dal primo candidato esistente."""
+    """Reads the VERSION file from the first existing candidate path."""
     for candidate in _VERSION_CANDIDATES:
         try:
             content = candidate.read_text().strip()
@@ -41,23 +41,23 @@ def _read_version_file() -> str | None:
 
 
 def _resolve_version() -> str:
-    """Risolve la versione usando la strategia a cascata."""
-    # 1. File VERSION (installato o nel repo)
+    """Resolves the version string using the fallback strategy."""
+    # 1. VERSION file (installed or in repository)
     v = _read_version_file()
     if v:
         return v
 
-    # 3. Fallback
+    # 2. Fallback
     return "0.0.0+unknown"
 
 
-# Versione come stringa semver (es. "1.0.0")
+# Version as a semver string (e.g. "1.0.0")
 __version__: str = _resolve_version()
 
-# Tuple numerica per confronti programmatici (es. (1, 0, 0))
-# Gestisce versioni post-tag tipo "1.2.3-5-gabcdef"
+# Numeric tuple for programmatic comparisons (e.g. (1, 0, 0))
+# Handles post-tag versions like "1.2.3-5-gabcdef"
 def _to_tuple(v: str) -> tuple[int, ...]:
-    """Converte "1.2.3" o "1.2.3-5-gabc" in (1, 2, 3)."""
+    """Converts "1.2.3" or "1.2.3-5-gabc" into (1, 2, 3)."""
     base = v.split("-")[0].split("+")[0]
     try:
         return tuple(int(x) for x in base.split("."))
@@ -69,5 +69,5 @@ VERSION_TUPLE: tuple[int, ...] = _to_tuple(__version__)
 
 
 if __name__ == "__main__":
-    print(f"pico-fan-control versione: {__version__}")
+    print(f"pico-fan-control version: {__version__}")
     print(f"Tuple: {VERSION_TUPLE}")

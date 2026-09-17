@@ -1,10 +1,10 @@
 #!/bin/sh
-# debian/postinst - Script post-installazione pico-fan
-# =====================================================
-# Eseguito automaticamente da dpkg dopo l'installazione del pacchetto.
-# Si occupa di:
-#   1. Preparare il servizio systemd
-#   2. Creare la directory di configurazione
+# debian/postinst - Post-installation script for pico-fan
+# =======================================================
+# Automatically executed by dpkg after package installation.
+# Responsibilities:
+#   1. Prepare systemd daemon service
+#   2. Create configuration directory
 
 set -e
 
@@ -12,7 +12,7 @@ PACKAGE_NAME="pico-fan"
 INSTALL_LIB="/usr/lib/pico-fan"
 CONFIG_DIR="/etc/pico-fan"
 
-# Colori (opzionali, solo se terminale interattivo)
+# Colors (optional, only in interactive terminal)
 if [ -t 1 ]; then
     GREEN="\033[92m"
     YELLOW="\033[93m"
@@ -28,7 +28,7 @@ warning() { echo "${BOLD}${YELLOW}[pico-fan] AVVISO:${RESET} $*"; }
 error()   { echo "${BOLD}${RED}[pico-fan] ERRORE:${RESET} $*" >&2; }
 
 # ---------------------------------------------------------------------------
-# Funzione: configurazione systemd
+# Function: systemd configuration
 # ---------------------------------------------------------------------------
 systemd_setup() {
     if command -v systemctl > /dev/null 2>&1; then
@@ -48,7 +48,7 @@ systemd_setup() {
 }
 
 # ---------------------------------------------------------------------------
-# Funzione: creazione directory di configurazione
+# Function: create configuration directory
 # ---------------------------------------------------------------------------
 config_setup() {
     if [ ! -d "${CONFIG_DIR}" ]; then
@@ -57,7 +57,7 @@ config_setup() {
         info "Directory configurazione creata: ${CONFIG_DIR}"
     fi
 
-    # Crea configurazione di esempio se non esiste
+    # Create example configuration if none exists
     if [ ! -f "${CONFIG_DIR}/config.json" ] && \
        [ -f "${INSTALL_LIB}/config.json.example" ]; then
         cp "${INSTALL_LIB}/config.json.example" "${CONFIG_DIR}/config.json.example"
@@ -76,7 +76,7 @@ case "$1" in
         systemd_setup "$2"
 
         echo ""
-        # $2 è la versione precedente in caso di upgrade, vuoto alla prima installazione
+        # $2 is the previous version during upgrade, empty on initial install
         if [ -z "$2" ]; then
             info "=== Installazione completata! ==="
             echo ""

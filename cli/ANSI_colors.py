@@ -1,3 +1,12 @@
+"""
+ANSI_colors.py - ANSI Terminal Colors Helper
+==============================================
+Provides ANSI color constants and utility functions for formatted,
+colored terminal output when stdout is connected to an interactive TTY.
+"""
+
+from __future__ import annotations
+
 import os
 import sys
 
@@ -18,14 +27,14 @@ DIM = "\033[2m" if _COLOR else ""
 
 
 def supports_color() -> bool:
-    """Restituisce se il terminale corrente supporta i colori ANSI."""
+    """Returns True if the current terminal supports ANSI colors."""
     if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
         return False
     return os.environ.get("TERM", "") != "dumb"
 
 
 def cwrite(text: str, color: str = RESET, bold: bool = False) -> None:
-    """Scrive testo colorato senza aggiungere un newline."""
+    """Writes colored text without appending a newline."""
     if supports_color():
         prefix = (BOLD if bold else "") + color
         sys.stdout.write(f"{prefix}{text}{RESET}")
@@ -34,7 +43,7 @@ def cwrite(text: str, color: str = RESET, bold: bool = False) -> None:
 
 
 def cformat(text: str, color: str = RESET, bold: bool = False) -> str:
-    """Restituisce testo colorato per inserirlo in una stringa più ampia."""
+    """Returns colored text to embed inside a larger formatted string."""
     if not supports_color():
         return text
     prefix = (BOLD if bold else "") + color
@@ -42,6 +51,6 @@ def cformat(text: str, color: str = RESET, bold: bool = False) -> str:
 
 
 def cprint(text: str, color: str = RESET, bold: bool = False) -> None:
-    """Stampa testo colorato solo quando l'output è un terminale ANSI."""
+    """Prints colored text to stdout, appending a newline."""
     cwrite(text, color, bold)
     sys.stdout.write("\n")

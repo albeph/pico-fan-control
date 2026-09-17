@@ -1,9 +1,10 @@
-# Riferimento per la regola udev del Pico fan-control.
+# udev/99-pico-fan.rules - Reference template for Pico fan-control udev rule
+# =========================================================================
+# This reference file is NOT installed directly by the .deb package:
+# the actual runtime rule is generated dynamically by "pico-fan setup"
+# based on the unique USB serial ID of the selected Pico board.
+# Runtime path: /etc/udev/rules.d/99-pico-fan-device.rules
 #
-# Questo file NON viene installato dal pacchetto .deb: la regola runtime viene
-# generata da "pico-fan setup" in base al seriale del Pico selezionato.
-# Percorso runtime: /etc/udev/rules.d/99-pico-fan-device.rules
-#
-# Esempio della regola generata:
-# SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{serial}=="SERIALE", \
+# Example of generated rule:
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{serial}=="SERIAL_NUMBER", \
 #     GROUP="dialout", MODE="0660", SYMLINK+="pico-fan"

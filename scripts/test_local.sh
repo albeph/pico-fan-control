@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# scripts/test_local.sh - Test locale rapido senza installazione
+# scripts/test_local.sh - Quick local test without installation
 # ==============================================================
-# Esegue una serie di test funzionali senza richiedere dpkg install.
-# Utile per sviluppo e CI/CD.
+# Runs a suite of functional tests without requiring dpkg install.
+# Useful for development and CI/CD.
 #
-# Utilizzo:
+# Usage:
 #   ./scripts/test_local.sh [--daemon] [--wizard] [--scan] [--all]
 #
-# Opzioni:
-#   --daemon   Esegue il demone in modalità dry-run (nessun Pico richiesto)
-#   --wizard   Esegue il wizard in modalità mock
-#   --scan     Scansiona le porte seriali (richiede Pico collegato)
-#   --all      Esegue tutti i test
+# Options:
+#   --daemon   Run daemon in dry-run mode (no Pico required)
+#   --wizard   Run wizard in mock mode
+#   --scan     Scan serial ports (requires Pico connected)
+#   --all      Run all tests
 #
-# Richiede: python3, python3-serial (opzionale per --scan)
+# Requires: python3, python3-serial (optional for --scan)
 
 set -euo pipefail
 
@@ -30,16 +30,16 @@ RESET="\033[0m"
 pass()    { echo -e "  ${GREEN}✓${RESET} $*"; }
 fail()    { echo -e "  ${RED}✗${RESET} $*"; FAILURES=$((FAILURES + 1)); }
 info()    { echo -e "${CYAN}[TEST]${RESET} $*"; }
-warning() { echo -e "${YELLOW}[TEST] AVVISO:${RESET} $*"; }
+warning() { echo -e "${YELLOW}[TEST] WARNING:${RESET} $*"; }
 header()  { echo -e "\n${BOLD}${CYAN}=== $* ===${RESET}\n"; }
 
 FAILURES=0
 
 # ---------------------------------------------------------------------------
-# Test: sintassi Python
+# Test: Python syntax
 # ---------------------------------------------------------------------------
 test_python_syntax() {
-    header "Verifica sintassi Python"
+    header "Python Syntax Verification"
     local files=(
         "${REPO_ROOT}/daemon/pico_adapter.py"
         "${REPO_ROOT}/daemon/fan_daemon.py"
@@ -52,76 +52,76 @@ test_python_syntax() {
     )
     for f in "${files[@]}"; do
         if $PYTHON -m py_compile "$f" 2>/dev/null; then
-            pass "Sintassi OK: $(basename "$f")"
+            pass "Syntax OK: $(basename "$f")"
         else
-            fail "Errore sintassi: $f"
+            fail "Syntax error: $f"
             $PYTHON -m py_compile "$f" 2>&1 | head -5
         fi
     done
 }
 
 # ---------------------------------------------------------------------------
-# Test: import moduli Python
+# Test: Python module imports
 # ---------------------------------------------------------------------------
 test_python_imports() {
-    header "Verifica import Python"
+    header "Python Imports Verification"
 
-    # Test hardware_detector (senza seriale)
+    # Test hardware_detector (without serial)
     if $PYTHON -c "
 import sys
 sys.path.insert(0, '${REPO_ROOT}/daemon')
-# Test import parziale (senza pyserial richiede mock)
+# Partial import test (without pyserial requires mock)
 import importlib.util
 spec = importlib.util.spec_from_file_location('hardware_detector',
     '${REPO_ROOT}/daemon/hardware_detector.py')
 " 2>/dev/null; then
         pass "Import hardware_detector.py"
     else
-        warning "Import hardware_detector.py richiede pyserial"
+        warning "Import hardware_detector.py requires pyserial"
     fi
 }
 
 # ---------------------------------------------------------------------------
-# Test: configurazione JSON di esempio
+# Test: sample JSON configuration
 # ---------------------------------------------------------------------------
 test_config_json() {
-    header "Verifica configurazione JSON"
+    header "JSON Configuration Verification"
     local cfg="${REPO_ROOT}/configs/config.json.example"
 
     if [[ -f "$cfg" ]]; then
         if $PYTHON -c "import json; json.load(open('$cfg'))" 2>/dev/null; then
-            pass "JSON valido: config.json.example"
+            pass "Valid JSON: config.json.example"
         else
-            fail "JSON non valido: $cfg"
+            fail "Invalid JSON: $cfg"
         fi
     else
-        fail "File mancante: $cfg"
+        fail "Missing file: $cfg"
     fi
 }
 
 
 # ---------------------------------------------------------------------------
-# Test: sistema di versioning
+# Test: versioning system
 # ---------------------------------------------------------------------------
 test_versioning() {
-    header "Verifica sistema di versioning"
+    header "Versioning System Verification"
 
     local version_file="${REPO_ROOT}/VERSION"
 
-    # 1. File VERSION esiste e ha formato semver
+    # 1. VERSION file exists and has semver format
     if [[ ! -f "$version_file" ]]; then
-        fail "File VERSION mancante nella root del repository"
+        fail "VERSION file missing in repository root"
         return
     fi
     local ver
     ver=$(tr -d '[:space:]' < "$version_file")
     if echo "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-        pass "File VERSION formato valido: ${ver}"
+        pass "VERSION file valid format: ${ver}"
     else
-        fail "File VERSION formato non semver: '${ver}'"
+        fail "VERSION file non-semver format: '${ver}'"
     fi
 
-    # 2. version.py risolve la versione correttamente
+    # 2. version.py resolves version correctly
     local py_ver
     py_ver=$($PYTHON -c "
 import sys
@@ -132,41 +132,41 @@ print(__version__)
     if [[ "$py_ver" != "ERROR" && -n "$py_ver" ]]; then
         pass "version.py: __version__='${py_ver}'"
     else
-        fail "version.py: impossibile risolvere la versione"
+        fail "version.py: unable to resolve version"
     fi
 
-    # 3. Coerenza VERSION file vs version.py
+    # 3. Consistency VERSION file vs version.py
     if [[ "$py_ver" == "$ver" ]]; then
-        pass "Versione coerente: VERSION file == version.py (${ver})"
+        pass "Consistent version: VERSION file == version.py (${ver})"
     else
-        warning "Versione: VERSION file='${ver}' vs version.py='${py_ver}' (potrebbe usare git tag)"
+        warning "Version: VERSION file='${ver}' vs version.py='${py_ver}' (might use git tag)"
     fi
 
-    # 4. debian/control ha campo Version
+    # 4. debian/control has Version field
     local ctrl="${REPO_ROOT}/debian/control"
     if grep -q "^Version:" "$ctrl"; then
         local ctrl_ver
         ctrl_ver=$(grep "^Version:" "$ctrl" | awk '{print $2}')
         pass "debian/control Version: ${ctrl_ver}"
     else
-        fail "debian/control: campo Version mancante"
+        fail "debian/control: missing Version field"
     fi
 
-    # 5. build_deb.sh supporta --version
+    # 5. build_deb.sh supports --version
     if bash -n "${REPO_ROOT}/scripts/build_deb.sh"; then
-        pass "build_deb.sh sintassi bash OK"
+        pass "build_deb.sh bash syntax OK"
     else
-        fail "build_deb.sh errore di sintassi"
+        fail "build_deb.sh syntax error"
     fi
 
 
 }
 
 # ---------------------------------------------------------------------------
-# Test: script bash (shellcheck o sintassi bash)
+# Test: bash scripts (shellcheck or bash syntax check)
 # ---------------------------------------------------------------------------
 test_bash_scripts() {
-    header "Verifica script bash"
+    header "Bash Scripts Verification"
     local scripts=(
         "${REPO_ROOT}/scripts/build_deb.sh"
         "${REPO_ROOT}/scripts/test_local.sh"
@@ -177,7 +177,7 @@ test_bash_scripts() {
 
     for s in "${scripts[@]}"; do
         if [[ ! -f "$s" ]]; then
-            warning "File mancante: $s"
+            warning "Missing file: $s"
             continue
         fi
 
@@ -188,22 +188,22 @@ test_bash_scripts() {
                 warning "shellcheck warning in: $(basename "$s")"
             fi
         else
-            # Fallback: solo verifica sintassi bash
+            # Fallback: bash syntax check only
             if bash -n "$s" 2>/dev/null; then
-                pass "Sintassi bash OK: $(basename "$s")"
+                pass "Bash syntax OK: $(basename "$s")"
             else
-                fail "Errore sintassi bash: $s"
+                fail "Bash syntax error: $s"
             fi
         fi
     done
 }
 
 # ---------------------------------------------------------------------------
-# Test: scansione hardware (richiede Pico collegato)
+# Test: hardware scan (requires Pico connected)
 # ---------------------------------------------------------------------------
 test_scan_hardware() {
-    header "Scansione hardware reale"
-    info "Scansione /dev/serial/by-id/ ..."
+    header "Real Hardware Scan"
+    info "Scanning /dev/serial/by-id/ ..."
 
     $PYTHON -c "
 import sys
@@ -211,33 +211,33 @@ sys.path.insert(0, '${REPO_ROOT}/daemon')
 try:
     from hardware_detector import scan_devices, list_serial_by_id
     all_devs = list_serial_by_id()
-    print(f'  Dispositivi in /dev/serial/by-id/: {len(all_devs)}')
+    print(f'  Devices in /dev/serial/by-id/: {len(all_devs)}')
     for d in all_devs:
         print(f'    - {d}')
     print()
     devices = scan_devices(probe=True)
     if devices:
         for dev in devices:
-            print(f'  Trovato: {dev}')
+            print(f'  Found: {dev}')
     else:
-        print('  Nessun Pico trovato (normale se non collegato)')
+        print('  No Pico found (normal if not connected)')
 except ImportError as e:
-    print(f'  Import fallito: {e}')
-    print('  Installare: pip install pyserial')
-" && pass "Scansione hardware completata" || fail "Errore scansione hardware"
+    print(f'  Import failed: {e}')
+    print('  Install: pip install pyserial')
+" && pass "Hardware scan completed" || fail "Hardware scan error"
 }
 
 # ---------------------------------------------------------------------------
-# Test: demone dry-run (senza Pico e senza config)
+# Test: daemon dry-run (without Pico and without config)
 # ---------------------------------------------------------------------------
 test_daemon_dryrun() {
-    header "Demone dry-run"
-    info "Test caricamento moduli demone ..."
+    header "Daemon Dry-Run"
+    info "Testing daemon module loading ..."
 
     $PYTHON -c "
 import sys, os
 sys.path.insert(0, '${REPO_ROOT}/daemon')
-# Testa solo le funzioni che non richiedono hardware
+# Test only functions that do not require hardware
 try:
     import fan_daemon
     # Test compute_target_duty
@@ -246,24 +246,24 @@ try:
     assert fan_daemon.compute_target_duty(3000, cfg) == 50,  'duty_mid failed'
     assert fan_daemon.compute_target_duty(1000, cfg) == 0,   'duty_low failed'
     print('  compute_target_duty: OK')
-    print('  Moduli demone caricati con successo')
+    print('  Daemon modules loaded successfully')
 except ImportError as e:
-    print(f'  Import fallito: {e}')
-    print('  Installare: pip install pyserial')
+    print(f'  Import failed: {e}')
+    print('  Install: pip install pyserial')
     sys.exit(1)
-" && pass "Demone dry-run OK" || fail "Errore demone dry-run"
+" && pass "Daemon dry-run OK" || fail "Daemon dry-run error"
 }
 
 # ---------------------------------------------------------------------------
-# Riepilogo
+# Summary
 # ---------------------------------------------------------------------------
 print_summary() {
     echo ""
     echo -e "${BOLD}═══════════════════════════════════════${RESET}"
     if [[ $FAILURES -eq 0 ]]; then
-        echo -e "${BOLD}${GREEN}  ✓ Tutti i test superati${RESET}"
+        echo -e "${BOLD}${GREEN}  ✓ All tests passed${RESET}"
     else
-        echo -e "${BOLD}${RED}  ✗ ${FAILURES} test falliti${RESET}"
+        echo -e "${BOLD}${RED}  ✗ ${FAILURES} tests failed${RESET}"
     fi
     echo -e "${BOLD}═══════════════════════════════════════${RESET}"
     echo ""
@@ -274,7 +274,7 @@ print_summary() {
 # ===========================================================================
 main() {
     echo ""
-    info "=== pico-fan-control - Test suite locale ==="
+    info "=== pico-fan-control - Local test suite ==="
     echo ""
 
     local run_daemon=false
@@ -294,21 +294,21 @@ main() {
             --scan)   run_scan=true   ;;
             --all)    run_all=true    ;;
             *)
-                echo "Argomento non riconosciuto: $arg"
-                echo "Uso: $0 [--daemon] [--wizard] [--scan] [--all]"
+                echo "Unrecognized argument: $arg"
+                echo "Usage: $0 [--daemon] [--wizard] [--scan] [--all]"
                 exit 1
                 ;;
         esac
     done
 
-    # Test sempre eseguiti
+    # Tests always executed
     test_python_syntax
     test_python_imports
     test_config_json
     test_versioning
     test_bash_scripts
 
-    # Test selettivi
+    # Selective tests
 
     if $run_all || $run_daemon; then
         test_daemon_dryrun

@@ -1,44 +1,44 @@
 #!/usr/bin/env bash
-# scripts/build_deb.sh - Script per la generazione del pacchetto .deb
-# ====================================================================
-# La versione viene rilevata automaticamente nell'ordine:
-#   1. Argomento --version <ver> passato da CLI
-#   2. Ultimo tag git annotato (git describe --tags --abbrev=0)
-#   3. Contenuto del file VERSION nella root del repository
+# scripts/build_deb.sh - Debian (.deb) package build script
+# ==========================================================
+# Version is resolved automatically in the following order:
+#   1. CLI argument --version <ver>
+#   2. Latest annotated git tag (git describe --tags --abbrev=0)
+#   3. Content of VERSION file in repository root
 #   4. Fallback: "0.0.0+dev"
 #
-# Utilizzo:
+# Usage:
 #   ./scripts/build_deb.sh
-#   ./scripts/build_deb.sh --version 1.2.3   (forza versione specifica)
-#   ./scripts/build_deb.sh --clean            (pulisce senza costruire)
+#   ./scripts/build_deb.sh --version 1.2.3   (forces specific version)
+#   ./scripts/build_deb.sh --clean            (cleans build files without packaging)
 #
-# Genera: pico-fan_<VERSION>_all.deb
+# Generates: pico-fan_<VERSION>_all.deb
 #
-# Requisiti:
+# Requirements:
 #   - dpkg-dev (apt install dpkg-dev)
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Path repository
+# Repository path
 # ---------------------------------------------------------------------------
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACKAGE_NAME="pico-fan"
 ARCH="all"
 
 # ---------------------------------------------------------------------------
-# Rilevamento versione
+# Version detection
 # ---------------------------------------------------------------------------
 _detect_version() {
     local forced_version="${1:-}"
 
-    # 1. Versione forzata da CLI
+    # 1. Version forced from CLI
     if [[ -n "$forced_version" ]]; then
         echo "$forced_version"
         return
     fi
 
-    # 2. Tag git annotato (es. "v1.2.3" → "1.2.3")
+    # 2. Annotated git tag (e.g. "v1.2.3" -> "1.2.3")
     local git_tag
     git_tag=$(git -C "${REPO_ROOT}" describe --tags --abbrev=0 2>/dev/null \
               | sed 's/^v//' || true)
@@ -47,7 +47,7 @@ _detect_version() {
         return
     fi
 
-    # 3. File VERSION nella root
+    # 3. VERSION file in repository root
     local version_file="${REPO_ROOT}/VERSION"
     if [[ -f "$version_file" ]]; then
         local file_ver
@@ -63,7 +63,7 @@ _detect_version() {
 }
 
 # ---------------------------------------------------------------------------
-# Parse argomenti CLI
+# Parse CLI arguments
 # ---------------------------------------------------------------------------
 FORCED_VERSION=""
 DO_CLEAN_ONLY=false
@@ -71,7 +71,7 @@ DO_CLEAN_ONLY=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)
-            FORCED_VERSION="${2:?'--version richiede un argomento'}"
+            FORCED_VERSION="${2:?'--version requires an argument'}"
             shift 2
             ;;
         --clean)
@@ -79,8 +79,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Argomento non riconosciuto: $1"
-            echo "Uso: $0 [--version <ver>] [--clean]"
+            echo "Unrecognized argument: $1"
+            echo "Usage: $0 [--version <ver>] [--clean]"
             exit 1
             ;;
     esac
@@ -92,7 +92,7 @@ BUILD_DIR="${REPO_ROOT}/build"
 PKG_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
 
 # ---------------------------------------------------------------------------
-# Directory di destinazione dentro il pacchetto
+# Target directories inside package
 # ---------------------------------------------------------------------------
 DEST_LIB="${PKG_DIR}/usr/lib/pico-fan"
 DEST_BIN="${PKG_DIR}/usr/bin"
@@ -100,11 +100,11 @@ DEST_SYSTEMD="${PKG_DIR}/lib/systemd/system"
 DEST_DEBIAN="${PKG_DIR}/DEBIAN"
 
 # ---------------------------------------------------------------------------
-# Colori
+# Colors and logging
 # ---------------------------------------------------------------------------
 info()    { echo -e "\033[92m[BUILD]\033[0m $*"; }
-warning() { echo -e "\033[93m[BUILD] AVVISO:\033[0m $*"; }
-error()   { echo -e "\033[91m[BUILD] ERRORE:\033[0m $*" >&2; exit 1; }
+warning() { echo -e "\033[93m[BUILD] WARNING:\033[0m $*"; }
+error()   { echo -e "\033[91m[BUILD] ERROR:\033[0m $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 check_deps() {
@@ -113,21 +113,21 @@ check_deps() {
         command -v "$cmd" > /dev/null 2>&1 || missing+=("$cmd")
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Dipendenze mancanti: ${missing[*]}\nInstallare: apt install dpkg-dev"
+        error "Missing dependencies: ${missing[*]}\nInstall with: apt install dpkg-dev"
     fi
 }
 
 # ---------------------------------------------------------------------------
 clean_build() {
-    info "Pulizia directory di build ..."
+    info "Cleaning build directory ..."
     rm -rf "${BUILD_DIR}"
     rm -f "${REPO_ROOT}/${PACKAGE_NAME}"_*.deb
-    info "Pulizia completata."
+    info "Cleanup complete."
 }
 
 # ---------------------------------------------------------------------------
 create_dirs() {
-    info "Creazione struttura directory ..."
+    info "Creating directory structure ..."
     mkdir -p \
         "${DEST_LIB}/kernel_module" \
         "${DEST_LIB}/daemon" \
@@ -139,14 +139,14 @@ create_dirs() {
 
 # ---------------------------------------------------------------------------
 install_files() {
-    info "Copia file sorgente ..."
+    info "Copying source files ..."
 
-    # Firmware (per riferimento, non eseguito sull'host)
+    # Firmware (for reference, not executed on host)
     cp -r "${REPO_ROOT}/firmware" "${DEST_LIB}/"
 
-    # Kernel module rimosso come richiesto
+    # Kernel module removed as requested
 
-    # Daemon Python
+    # Python daemon
     cp "${REPO_ROOT}/daemon/fan_daemon.py"        "${DEST_LIB}/daemon/"
     cp "${REPO_ROOT}/daemon/hardware_detector.py" "${DEST_LIB}/daemon/"
     cp "${REPO_ROOT}/daemon/pico_adapter.py"      "${DEST_LIB}/daemon/"
@@ -159,22 +159,22 @@ install_files() {
     cp "${REPO_ROOT}/cli/manual.py"       "${DEST_LIB}/cli/"
     cp "${REPO_ROOT}/cli/main.py"         "${DEST_LIB}/cli/"
 
-    # File VERSION installato (per runtime version resolution)
+    # Installed VERSION file (for runtime version resolution)
     echo "${VERSION}" > "${DEST_LIB}/VERSION"
     info "  VERSION=${VERSION} → /usr/lib/pico-fan/VERSION"
 
-    # Config esempio
+    # Example configuration
     cp "${REPO_ROOT}/configs/config.json.example" "${DEST_LIB}/"
 
     # systemd unit
     cp "${REPO_ROOT}/systemd/pico-fan.service" "${DEST_SYSTEMD}/"
 
-    # La regola udev viene generata dal wizard per il seriale selezionato.
+    # udev rule is generated by setup wizard for selected USB serial ID
 }
 
 # ---------------------------------------------------------------------------
 create_wrappers() {
-    info "Creazione wrapper eseguibili ..."
+    info "Creating executable CLI wrapper ..."
 
     cat > "${DEST_BIN}/pico-fan" << 'EOF'
 #!/usr/bin/env bash
@@ -186,21 +186,21 @@ EOF
 
 # ---------------------------------------------------------------------------
 create_debian_meta() {
-    info "Generazione metadata DEBIAN ..."
+    info "Generating DEBIAN metadata ..."
 
-    # Genera il control con la versione corretta iniettata, tenendo solo il blocco Package
+    # Generate control file with correct version injected, keeping Package block
     awk '/^Package: /{p=1} p' "${REPO_ROOT}/debian/control" > "${DEST_DEBIAN}/control"
 
-    # Inietta o aggiorna la versione
+    # Inject or update version field
     if grep -q "^Version:" "${DEST_DEBIAN}/control"; then
         sed -i "s/^Version:.*/Version: ${VERSION}/" "${DEST_DEBIAN}/control"
-        info "  Version nel control aggiornato: ${VERSION}"
+        info "  Version updated in control: ${VERSION}"
     else
         sed -i "s/^Package: .*/&\nVersion: ${VERSION}/" "${DEST_DEBIAN}/control"
-        info "  Campo Version aggiunto al control: ${VERSION}"
+        info "  Version field added to control: ${VERSION}"
     fi
 
-    # Script hook
+    # Hook scripts
     for script in postinst prerm postrm; do
         if [[ -f "${REPO_ROOT}/debian/${script}" ]]; then
             cp "${REPO_ROOT}/debian/${script}" "${DEST_DEBIAN}/${script}"
@@ -208,7 +208,7 @@ create_debian_meta() {
         fi
     done
 
-    # Dimensione installata
+    # Installed size
     local installed_size
     installed_size=$(du -sk "${PKG_DIR}" | cut -f1)
     if grep -q "^Installed-Size:" "${DEST_DEBIAN}/control"; then
@@ -217,7 +217,7 @@ create_debian_meta() {
     fi
 
     # md5sums
-    info "Calcolo checksum ..."
+    info "Calculating checksums ..."
     (
         cd "${PKG_DIR}"
         find . -type f ! -path './DEBIAN/*' \
@@ -227,7 +227,7 @@ create_debian_meta() {
 
 # ---------------------------------------------------------------------------
 set_permissions() {
-    info "Impostazione permessi ..."
+    info "Setting file permissions ..."
     find "${PKG_DIR}" -type d -exec chmod 755 {} \;
     find "${PKG_DIR}/usr" -type f -exec chmod 644 {} \;
     find "${PKG_DIR}/lib" -type f -exec chmod 644 {} \;
@@ -240,13 +240,13 @@ set_permissions() {
 
 # ---------------------------------------------------------------------------
 build_deb() {
-    info "Costruzione pacchetto .deb ..."
+    info "Building .deb package ..."
     dpkg-deb --build --root-owner-group "${PKG_DIR}" "${REPO_ROOT}/${DEB_FILE}"
 
     echo ""
-    info "✓ Pacchetto generato: ${REPO_ROOT}/${DEB_FILE}"
+    info "✓ Package generated: ${REPO_ROOT}/${DEB_FILE}"
     echo ""
-    info "=== Informazioni pacchetto ==="
+    info "=== Package Information ==="
     dpkg-deb --info "${REPO_ROOT}/${DEB_FILE}"
 }
 

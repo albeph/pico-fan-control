@@ -1,5 +1,9 @@
-"""Adapter client per il socket IPC del demone pico-fan.
-Permette ai vari script python di interfacciarsi con il demone gestito da fan_deamon
+"""
+ipc_adapter.py - IPC Client Adapter for pico-fan Daemon
+=========================================================
+Provides an IPC client interface to communicate with the pico-fan daemon
+via UNIX domain socket, allowing commands such as querying status, setting
+manual duty cycle, and resuming automatic control.
 """
 
 from __future__ import annotations
@@ -14,14 +18,14 @@ DEFAULT_TIMEOUT = 3.0
 
 
 class IpcAdapter:
-    """Invia comandi al demone e converte le risposte del socket."""
+    """Sends commands to the daemon and parses socket responses."""
 
     def __init__(self, socket_path: str = SOCK_PATH, timeout: float = DEFAULT_TIMEOUT) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
 
     def send_command(self, command: str = "") -> str | None:
-        """Invia un comando IPC e restituisce la risposta line-based."""
+        """Sends an IPC command and returns the line-based response."""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(self.timeout)
@@ -41,7 +45,7 @@ class IpcAdapter:
             return None
 
     def get_status(self) -> dict[str, Any] | None:
-        """Richiede lo stato corrente del demone."""
+        """Queries the current status from the running daemon."""
         response = self.send_command()
         if not response:
             return None
@@ -52,11 +56,11 @@ class IpcAdapter:
         return state if isinstance(state, dict) else None
 
     def set_manual_duty(self, duty: int) -> bool:
-        """Attiva la modalità manuale del demone con il duty indicato."""
+        """Activates manual mode on the daemon with the specified duty cycle."""
         if not 0 <= duty <= 100:
-            raise ValueError("duty deve essere compreso tra 0 e 100")
+            raise ValueError("duty must be between 0 and 100")
         return self.send_command(f"SET {duty}") == "OK"
 
     def resume(self) -> bool:
-        """Chiede al demone di ripristinare il controllo automatico."""
+        """Requests the daemon to resume automatic fan control."""
         return self.send_command("RESUME") == "OK"

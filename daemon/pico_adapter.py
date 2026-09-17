@@ -1,5 +1,9 @@
-"""Client condiviso per il protocollo seriale del Raspberry Pi Pico.
-Funge da layer di traduzione tra il software pico-fan (Solitamente dal deamon) ed i comandi del microcontrollore
+"""
+pico_adapter.py - Shared Serial Protocol Adapter for Raspberry Pi Pico
+========================================================================
+Acts as the communication and protocol translation layer between the host
+pico-fan software (daemon, wizard, test scripts) and the MicroPython firmware
+running on the Raspberry Pi Pico / RP2040.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ CONNECT_DELAY = 0.5
 
 
 class PicoAdapter:
-    """Gestisce connessione e comandi del protocollo pico-fan."""
+    """Manages connection and command dispatching for the pico-fan serial protocol."""
 
     def __init__(
         self,
@@ -38,11 +42,11 @@ class PicoAdapter:
 
     @property
     def connected(self) -> bool:
-        """Indica se la porta seriale è attualmente aperta."""
+        """Returns True if the serial port is currently open."""
         return self._serial is not None
 
     def connect(self) -> None:
-        """Apre la porta seriale e attende che il CDC del Pico sia pronto."""
+        """Opens the serial port and waits until the Pico's USB CDC is ready."""
         if self.connected:
             return
 
@@ -56,7 +60,7 @@ class PicoAdapter:
         self._serial = connection
 
     def disconnect(self) -> None:
-        """Chiude la porta seriale senza propagare errori di chiusura."""
+        """Closes the serial port without raising on closure errors."""
         if self._serial is None:
             return
         try:
@@ -67,7 +71,7 @@ class PicoAdapter:
             self._serial = None
 
     def send_command(self, command: str) -> Optional[str]:
-        """Invia un comando line-based e restituisce la risposta, se presente."""
+        """Sends a line-based command and returns the response, if available."""
         if self._serial is None:
             return None
 
@@ -82,13 +86,13 @@ class PicoAdapter:
             return None
 
     def set_duty(self, duty: int) -> bool:
-        """Imposta il duty cycle della ventola esterna."""
+        """Sets the external fan duty cycle percentage (0-100)."""
         if not 0 <= duty <= 100:
-            raise ValueError("duty deve essere compreso tra 0 e 100")
+            raise ValueError("duty must be between 0 and 100")
         return self.send_command(f"SET {duty}") == "OK"
 
     def fetch_rpm(self) -> tuple[Optional[int], Optional[int]]:
-        """Richiede RPM e duty correnti, restituendo ``(rpm, duty)``."""
+        """Queries current RPM and duty cycle, returning (rpm, duty)."""
         response = self.send_command("RPM")
         if not response or not response.startswith("RPM:"):
             return None, None

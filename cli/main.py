@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-pico-fan - Comando unificato pico-fan-control
-=============================================
-Dispatcher principale che instrada i sottocomandi ai rispettivi moduli.
+main.py - pico-fan Unified CLI Dispatcher
+===========================================
+Primary command dispatcher for pico-fan-control, routing subcommands
+(daemon, setup, status, manual, version) to their respective modules.
 
-Uso: pico-fan <comando> [opzioni]
+Usage: pico-fan <command> [options]
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprin
 
 
 SCRIPT_DIR  = Path(__file__).parent.resolve()
-DAEMON_DIR  = SCRIPT_DIR.parent / "daemon" #./pico-fan-control/daemon
+DAEMON_DIR  = SCRIPT_DIR.parent / "daemon"
 
-# Aggiunge entrambe le cartelle nei percorsi in cui Python cerca i moduli
+# Add both directories to Python's module search path
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(DAEMON_DIR))
 
@@ -53,30 +54,30 @@ HELP = f"""\
 
 
 def _cmd_version() -> None:
-    """Stampa la versione installata."""
+    """Prints the installed version."""
     print(__version__)
 
 
 def _cmd_daemon() -> None:
-    """Avvia il demone di sincronizzazione RPM."""
+    """Starts the RPM synchronization daemon."""
     from fan_daemon import main as fd_main
     fd_main()
 
 
 def _cmd_setup() -> None:
-    """Avvia il wizard di configurazione interattivo."""
+    """Starts the interactive configuration wizard."""
     from setup_wizard import main as sw_main
     sw_main()
 
 
 def _cmd_status() -> None:
-    """Mostra lo stato corrente del demone via socket IPC."""
+    """Displays current daemon status via IPC socket."""
     from status import main as status_main
     status_main()
 
 
 def _cmd_manual() -> None:
-    """Imposta manualmente la velocità della ventola e mostra gli RPM."""
+    """Manually sets fan speed and displays real-time RPM."""
     from manual import main as manual_main
     manual_main()
 
@@ -85,11 +86,11 @@ def _cmd_manual() -> None:
 # Dispatch
 # ---------------------------------------------------------------------------
 COMMANDS: dict[str, tuple[str, callable]] = {
-    "daemon":  ("Avvia il demone di sincronizzazione RPM",             _cmd_daemon),
-    "setup":   ("Wizard interattivo di configurazione",                _cmd_setup),
-    "status":  ("Mostra stato in tempo reale",                         _cmd_status),
-    "manual":  ("Imposta manualmente la velocità e monitora gli RPM",  _cmd_manual),
-    "version": ("Mostra la versione installata",                       _cmd_version),
+    "daemon":  ("Start RPM synchronization daemon",          _cmd_daemon),
+    "setup":   ("Interactive configuration wizard",          _cmd_setup),
+    "status":  ("Display real-time daemon status",           _cmd_status),
+    "manual":  ("Manually set fan speed and monitor RPM",    _cmd_manual),
+    "version": ("Display installed version",                 _cmd_version),
 }
 
 
@@ -105,7 +106,7 @@ def main() -> None:
         cprint("Esegui pico-fan --help per la lista dei comandi disponibili.", BOLD)
         sys.exit(1)
 
-    # PermissionError 
+    # Permission check
 
     if cmd != "version" and os.geteuid() != 0:
         cprint(
@@ -116,10 +117,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Rimuove il sottocomando da sys.argv così i moduli ricevono i propri argomenti
+    # Remove the subcommand from sys.argv so modules receive their own arguments
     sys.argv = [f"pico-fan {cmd}"] + sys.argv[2:]
 
-    _, fn = COMMANDS[cmd]   #ad esempio se cmd == cmd_manual, allora fn() sarà come eseguire _cmd_manual
+    _, fn = COMMANDS[cmd]   # e.g., if cmd == "manual", fn() executes _cmd_manual
     fn()
 
 

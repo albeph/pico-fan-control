@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-hardware_detector.py - Rilevamento hardware Raspberry Pi Pico / RP2040
-=======================================================================
-Modulo responsabile di:
-  - Scansionare /dev/serial/by-id/ cercando dispositivi RP2040/Pico
-  - Verificare la risposta al protocollo seriale (comando "RPM")
-  - Restituire path univoci e stabili basati su ID hardware
-
-Autore:   pico-fan-control project
-Versione: 1.0.0
+hardware_detector.py - Raspberry Pi Pico / RP2040 Hardware Detection
+======================================================================
+Responsible for:
+  - Scanning /dev/serial/by-id/ for connected RP2040 / Pico devices
+  - Probing serial communication to verify responsiveness to "RPM"
+  - Providing stable, unique paths based on persistent hardware identifiers
 """
 
 from __future__ import annotations
@@ -31,7 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Costanti
+# Constants
 # ---------------------------------------------------------------------------
 SERIAL_BY_ID_PATH = "/dev/serial/by-id"
 PICO_KEYWORDS = [
@@ -44,15 +41,15 @@ PICO_KEYWORDS = [
     "micropython",
 ]
 SERIAL_BAUDRATE = 115200
-SERIAL_TIMEOUT  = 2.0       # secondi
+SERIAL_TIMEOUT  = 2.0       # seconds
 PROBE_RETRIES   = 3
 
 
 # ---------------------------------------------------------------------------
-# Dataclass-like per un dispositivo rilevato
+# Dataclass-like container for a detected device
 # ---------------------------------------------------------------------------
 class PicoDevice:
-    """Rappresenta un Raspberry Pi Pico rilevato sulla porta seriale."""
+    """Represents a detected Raspberry Pi Pico on a serial port."""
 
     def __init__(
         self,
@@ -63,15 +60,15 @@ class PicoDevice:
         duty: Optional[int] = None,
         responsive: bool = False,
     ):
-        self.by_id_path  = by_id_path   # Path stabile in /dev/serial/by-id/
-        self.real_path   = real_path    # Path reale (es. /dev/ttyACM0)
-        self.hw_id       = hw_id        # ID hardware univoco (basename del symlink)
+        self.by_id_path  = by_id_path   # Stable persistent path in /dev/serial/by-id/
+        self.real_path   = real_path    # Real resolved path (e.g. /dev/ttyACM0)
+        self.hw_id       = hw_id        # Unique hardware ID (symlink basename)
         self.rpm         = rpm
         self.duty        = duty
         self.responsive  = responsive
 
     def __repr__(self) -> str:
-        status = f"RPM={self.rpm} DUTY={self.duty}%" if self.responsive else "non risponde"
+        status = f"RPM={self.rpm} DUTY={self.duty}%" if self.responsive else "not responding"
         return (
             f"PicoDevice(id='{self.hw_id}', "
             f"port='{self.real_path}', "
@@ -80,13 +77,13 @@ class PicoDevice:
 
 
 # ---------------------------------------------------------------------------
-# Funzioni principali
+# Main detection functions
 # ---------------------------------------------------------------------------
 
 def list_serial_by_id() -> list[str]:
     """
-    Restituisce tutti i path in /dev/serial/by-id/.
-    Ritorna lista vuota se la directory non esiste (nessun dispositivo seriale).
+    Returns all entry paths in /dev/serial/by-id/.
+    Returns an empty list if the directory does not exist (no serial devices).
     """
     base = Path(SERIAL_BY_ID_PATH)
     if not base.exists():
@@ -97,8 +94,8 @@ def list_serial_by_id() -> list[str]:
 
 def is_pico_device(by_id_path: str) -> bool:
     """
-    Determina se un percorso /dev/serial/by-id/ corrisponde a un Pico/RP2040
-    verificando le keyword nel nome.
+    Determines whether a /dev/serial/by-id/ path corresponds to a Pico/RP2040
+    by matching known hardware keywords in its name.
     """
     name = os.path.basename(by_id_path)
     for kw in PICO_KEYWORDS:
@@ -109,8 +106,8 @@ def is_pico_device(by_id_path: str) -> bool:
 
 def resolve_real_path(by_id_path: str) -> Optional[str]:
     """
-    Risolve il symlink di /dev/serial/by-id/ verso il path reale del device.
-    Ritorna None se il symlink è rotto (dispositivo scollegato).
+    Resolves the /dev/serial/by-id/ symlink to the real device node path.
+    Returns None if the symlink is broken (device disconnected).
     """
     try:
         real = os.path.realpath(by_id_path)
@@ -123,7 +120,7 @@ def resolve_real_path(by_id_path: str) -> Optional[str]:
 
 def probe_pico(real_path: str) -> tuple[bool, Optional[int], Optional[int]]:
     """
-    Apre la porta seriale e invia il comando "RPM" per verificare la risposta.
+    Opens serial port and sends 'RPM' command to test protocol response.
 
     Returns:
         (responsive, rpm, duty) tuple.
@@ -151,13 +148,13 @@ def probe_pico(real_path: str) -> tuple[bool, Optional[int], Optional[int]]:
 
 def scan_devices(probe: bool = True) -> list[PicoDevice]:
     """
-    Scansiona /dev/serial/by-id/ e restituisce lista di PicoDevice.
+    Scans /dev/serial/by-id/ and returns a list of PicoDevice objects.
 
     Args:
-        probe: Se True, testa la risposta seriale di ogni dispositivo trovato.
+        probe: If True, tests serial communication for each detected device.
 
     Returns:
-        Lista di PicoDevice rilevati (può essere vuota).
+        List of detected PicoDevice objects (may be empty).
     """
     found: list[PicoDevice] = []
 
@@ -200,8 +197,8 @@ def scan_devices(probe: bool = True) -> list[PicoDevice]:
 
 def find_configured_device(config_path: str) -> Optional[str]:
     """
-    Verifica se il dispositivo configurato in config.json è ancora presente
-    e raggiungibile. Restituisce il path reale o None.
+    Checks whether the device configured in config.json is still present
+    and reachable. Returns real device path or None.
     """
     import json
     try:

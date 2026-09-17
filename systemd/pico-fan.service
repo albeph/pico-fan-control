@@ -1,3 +1,8 @@
+# systemd/pico-fan.service - Systemd service unit for pico-fan daemon
+# ===================================================================
+# Manages the pico-fan background daemon, providing automatic startup
+# at system boot and crash recovery.
+
 [Unit]
 Description=Pico Fan Control Daemon - USB Fan Sync via Raspberry Pi Pico
 Documentation=https://github.com/albeph/pico-fan-control
@@ -7,30 +12,30 @@ StartLimitIntervalSec=120
 StartLimitBurst=5
 ConditionPathExists=/etc/pico-fan/config.json
 
-# Riavvio automatico se il demone crasha (escluso stop manuale)
+# Automatic restart if daemon crashes (excluding clean manual stop)
 [Service]
 Type=simple
 User=root
 Group=root
 
-# Percorso dello script demone installato
+# Path to installed CLI wrapper launching daemon
 ExecStart=/usr/bin/pico-fan daemon
 
-# Riavvio automatico in caso di crash, con backoff esponenziale
+# Automatic restart on failure with backoff interval
 Restart=on-failure
 RestartSec=10s
 
-# Logging verso journald
+# Logging directed to journald
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pico-fan
 
-# Permessi e sicurezza
+# Permissions and security sandboxing
 PrivateTmp=false
 ProtectSystem=false
 NoNewPrivileges=true
 
-# Variabili d'ambiente
+# Environment variables
 Environment="PYTHONUNBUFFERED=1"
 
 [Install]

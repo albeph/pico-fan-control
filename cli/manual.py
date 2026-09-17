@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-pico-fan manual <percentuale>
-==============================
-Imposta manualmente la velocità della ventola esterna a una percentuale fissa,
-mostrando gli RPM in tempo reale fino a Ctrl+C.
-Il controllo automatico del demone viene sospeso per tutta la durata e
-ripristinato automaticamente all'uscita.
+manual.py - pico-fan manual <percentage>
+=========================================
+Manually sets the external fan speed to a fixed percentage, displaying
+RPM in real-time until interrupted (Ctrl+C).
+Automatic daemon control is suspended for the duration and restored
+automatically upon exit.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import time
 from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
 from ipc_adapter import IpcAdapter, SOCK_PATH
 
-REFRESH_SEC = 1.0   # Intervallo di aggiornamento RPM
+REFRESH_SEC = 1.0   # RPM refresh interval in seconds
 
 ipc = IpcAdapter()
 
@@ -27,7 +27,7 @@ ipc = IpcAdapter()
 
 def main() -> None:
     # -----------------------------------------------------------------------
-    # Parsing argomento
+    # Argument parsing
     # -----------------------------------------------------------------------
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         cprint(
@@ -54,7 +54,7 @@ def main() -> None:
         sys.exit(1)
 
     # -----------------------------------------------------------------------
-    # Controlla che il demone sia in ascolto
+    # Check that daemon is listening
     # -----------------------------------------------------------------------
     state = ipc.get_status()
     if state is None:
@@ -66,17 +66,17 @@ def main() -> None:
         sys.exit(1)
 
     # -----------------------------------------------------------------------
-    # Attiva la modalità manuale
+    # Activate manual mode
     # -----------------------------------------------------------------------
     if not ipc.set_manual_duty(duty):
         cprint("Errore: impossibile impostare il duty cycle. Il demone ha risposto in modo inatteso.", RED)
         sys.exit(1)
 
     # -----------------------------------------------------------------------
-    # Handler Ctrl+C / SIGTERM → ripristina controllo automatico
+    # Handler Ctrl+C / SIGTERM -> restore automatic control
     # -----------------------------------------------------------------------
     def _cleanup(sig=None, frame=None) -> None:
-        # Vai a capo dopo la riga \r in corso
+        # Move to new line after active carriage return \r
         print()
         cprint("\nRipristino controllo automatico...", YELLOW)
         ipc.resume()
@@ -87,7 +87,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _cleanup)
 
     # -----------------------------------------------------------------------
-    # Header
+    # Header display
     # -----------------------------------------------------------------------
     cprint(
         f"\nModalità manuale — ventola al {duty}%\n"
@@ -99,7 +99,7 @@ def main() -> None:
     print(f"  {'─' * 12}   {'─' * 12}   {'─' * 6}")
 
     # -----------------------------------------------------------------------
-    # Loop di monitoraggio
+    # Monitoring loop
     # -----------------------------------------------------------------------
     while True:
         state = ipc.get_status()

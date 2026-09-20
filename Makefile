@@ -22,8 +22,8 @@
 # Version: read from VERSION file, with fallback to git describe
 # ---------------------------------------------------------------------------
 VERSION := $(shell \
-    git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' \
-    || cat VERSION 2>/dev/null \
+    cat VERSION 2>/dev/null \
+    || git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' \
     || echo "0.0.0+dev")
 
 PACKAGE   := pico-fan

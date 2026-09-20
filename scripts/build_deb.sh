@@ -3,8 +3,8 @@
 # ==========================================================
 # Version is resolved automatically in the following order:
 #   1. CLI argument --version <ver>
-#   2. Latest annotated git tag (git describe --tags --abbrev=0)
-#   3. Content of VERSION file in repository root
+#   2. Content of VERSION file in repository root
+#   3. Latest annotated git tag (git describe --tags --abbrev=0)
 #   4. Fallback: "0.0.0+dev"
 #
 # Usage:
@@ -38,16 +38,7 @@ _detect_version() {
         return
     fi
 
-    # 2. Annotated git tag (e.g. "v1.2.3" -> "1.2.3")
-    local git_tag
-    git_tag=$(git -C "${REPO_ROOT}" describe --tags --abbrev=0 2>/dev/null \
-              | sed 's/^v//' || true)
-    if [[ -n "$git_tag" ]]; then
-        echo "$git_tag"
-        return
-    fi
-
-    # 3. VERSION file in repository root
+    # 2. VERSION file in repository root
     local version_file="${REPO_ROOT}/VERSION"
     if [[ -f "$version_file" ]]; then
         local file_ver
@@ -56,6 +47,15 @@ _detect_version() {
             echo "$file_ver"
             return
         fi
+    fi
+
+    # 3. Annotated git tag (e.g. "v1.2.3" -> "1.2.3")
+    local git_tag
+    git_tag=$(git -C "${REPO_ROOT}" describe --tags --abbrev=0 2>/dev/null \
+              | sed 's/^v//' || true)
+    if [[ -n "$git_tag" ]]; then
+        echo "$git_tag"
+        return
     fi
 
     # 4. Fallback
@@ -122,6 +122,8 @@ clean_build() {
     info "Cleaning build directory ..."
     rm -rf "${BUILD_DIR}"
     rm -f "${REPO_ROOT}/${PACKAGE_NAME}"_*.deb
+    find "${REPO_ROOT}" -name "*.pyc" -delete 2>/dev/null || true
+    find "${REPO_ROOT}" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
     info "Cleanup complete."
 }
 
@@ -129,9 +131,9 @@ clean_build() {
 create_dirs() {
     info "Creating directory structure ..."
     mkdir -p \
-        "${DEST_LIB}/kernel_module" \
         "${DEST_LIB}/daemon" \
         "${DEST_LIB}/cli" \
+        "${DEST_LIB}/firmware" \
         "${DEST_BIN}" \
         "${DEST_SYSTEMD}" \
         "${DEST_DEBIAN}"
@@ -142,22 +144,13 @@ install_files() {
     info "Copying source files ..."
 
     # Firmware (for reference, not executed on host)
-    cp -r "${REPO_ROOT}/firmware" "${DEST_LIB}/"
-
-    # Kernel module removed as requested
+    cp "${REPO_ROOT}/firmware/"*.py "${DEST_LIB}/firmware/"
 
     # Python daemon
-    cp "${REPO_ROOT}/daemon/fan_daemon.py"        "${DEST_LIB}/daemon/"
-    cp "${REPO_ROOT}/daemon/hardware_detector.py" "${DEST_LIB}/daemon/"
-    cp "${REPO_ROOT}/daemon/pico_adapter.py"      "${DEST_LIB}/daemon/"
-    cp "${REPO_ROOT}/daemon/version.py"           "${DEST_LIB}/daemon/"
+    cp "${REPO_ROOT}/daemon/"*.py "${DEST_LIB}/daemon/"
 
-    # CLI
-    cp "${REPO_ROOT}/cli/ipc_adapter.py"   "${DEST_LIB}/cli/"
-    cp "${REPO_ROOT}/cli/setup_wizard.py" "${DEST_LIB}/cli/"
-    cp "${REPO_ROOT}/cli/status.py"       "${DEST_LIB}/cli/"
-    cp "${REPO_ROOT}/cli/manual.py"       "${DEST_LIB}/cli/"
-    cp "${REPO_ROOT}/cli/main.py"         "${DEST_LIB}/cli/"
+    # CLI (including ANSI_colors.py, main.py, setup_wizard.py, status.py, manual.py, ipc_adapter.py)
+    cp "${REPO_ROOT}/cli/"*.py "${DEST_LIB}/cli/"
 
     # Installed VERSION file (for runtime version resolution)
     echo "${VERSION}" > "${DEST_LIB}/VERSION"
@@ -256,8 +249,8 @@ build_deb() {
 main() {
     local ver_source="fallback"
     [[ -n "$FORCED_VERSION" ]] && ver_source="CLI --version" || \
-    { git -C "${REPO_ROOT}" describe --tags --abbrev=0 &>/dev/null 2>&1 && ver_source="git tag"; } || \
-    { [[ -f "${REPO_ROOT}/VERSION" ]] && ver_source="file VERSION"; } || true
+    { [[ -f "${REPO_ROOT}/VERSION" ]] && ver_source="file VERSION"; } || \
+    { git -C "${REPO_ROOT}" describe --tags --abbrev=0 &>/dev/null 2>&1 && ver_source="git tag"; } || true
 
     echo ""
     info "=== Build pico-fan v${VERSION} ==="

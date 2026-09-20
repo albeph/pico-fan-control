@@ -13,6 +13,13 @@ from __future__ import annotations
 import signal
 import sys
 import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).parent.resolve()
+DAEMON_DIR = SCRIPT_DIR.parent / "daemon"
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(DAEMON_DIR))
+
 from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
 from ipc_adapter import IpcAdapter, SOCK_PATH
 

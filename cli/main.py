@@ -13,8 +13,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
-
 
 SCRIPT_DIR  = Path(__file__).parent.resolve()
 DAEMON_DIR  = SCRIPT_DIR.parent / "daemon"
@@ -22,6 +20,8 @@ DAEMON_DIR  = SCRIPT_DIR.parent / "daemon"
 # Add both directories to Python's module search path
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(DAEMON_DIR))
+
+from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cprint
 
 try:
     from version import __version__

@@ -25,6 +25,7 @@ pico-fan-control/
 │   └── version.py            # Utility for dynamic runtime version resolution
 │
 ├── cli/                      # Command-line interface user tools
+│   ├── ANSI_colors.py        # Helper for ANSI terminal colors and formatting
 │   ├── main.py               # Unified pico-fan executable: dispatcher with subcommands
 │   ├── ipc_adapter.py        # Shared adapter for the daemon IPC socket
 │   ├── setup_wizard.py       # Interactive configuration wizard for hardware and thresholds (pico-fan setup)
@@ -68,6 +69,7 @@ Contains the core backend service running on the Linux host/server.
 
 ### 3. `cli/`
 Contains user-facing command-line tools accessible via the single `pico-fan` executable:
+* **`ANSI_colors.py`**: Shared helper module providing ANSI color escape sequences and formatting utilities (`cprint`, `cwrite`, `cformat`) with automatic TTY detection and fallback.
 * **`main.py`**: Main dispatcher. Routes arguments to subcommands (`setup`, `status`, `manual`, `version`, `daemon`) or prints contextual help.
 * **`ipc_adapter.py`**: Shared adapter to communicate with the daemon via UNIX socket, including status queries, manual override mode, and automatic mode restoration.
 * **`setup_wizard.py`** (`pico-fan setup`): Interactive color-guided wizard. Guides the user through hardware detection, fan testing with automatic search for the optimal duty cycle, RPM source selection, and saving configuration to `/etc/pico-fan/config.json`.

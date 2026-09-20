@@ -23,13 +23,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
-from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cformat, cprint, cwrite
 
-
-# Add daemon directory to path to import backend modules
+# Add CLI and daemon directories to module search path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 DAEMON_DIR = SCRIPT_DIR.parent / "daemon"
+sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(DAEMON_DIR))
+
+from ANSI_colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW, cformat, cprint, cwrite
 
 try:
     from hardware_detector import scan_devices, PicoDevice

@@ -2,9 +2,8 @@
 
 > **USB Fan Control via Raspberry Pi Pico / RP2040 (Userspace IPC Daemon)**
 
-[![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)](https://github.com)
-[![Linux](https://img.shields.io/badge/Linux-Userspace%20Daemon-blue?logo=linux)](https://github.com)
-[![MicroPython](https://img.shields.io/badge/MicroPython-RP2040-green?logo=micropython)](https://github.com)
+![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)
+![MicroPython](https://img.shields.io/badge/MicroPython-RP2040-green?logo=micropython)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 
 ---
@@ -29,9 +28,9 @@
 ## Architecture
 
 ```
-                    ┌──────────────────────────────────────────┐
-                    │            LINUX HOST                    │
-                    │                                          │
+                    ┌──────────────────────────────────────────────────┐
+                    │            LINUX HOST                            │
+                    │                                                  │
   ┌──────────┐      │  ┌─────────────┐    ┌────────────────────────┐   │
   │ Internal │      │  │ fan_daemon  │───▶│ IPC Socket             │   │
   │ fan      │─────▶│  │   .py       │    │ UNIX (/run/            │   │
@@ -92,6 +91,27 @@ Pin 4 - PWM  (blue)  ──▶  GP15 (Pin 20)
     Pico GND ──┘  (Common GND is MANDATORY)
     Pico GP15 ────(optional 1kΩ pull-up resistor)──▶ Fan Pin 4 (PWM)
     Pico GP14 ◀───(direct or with 10kΩ resistor)─── Fan Pin 3 (TACH)
+```
+
+---
+## Serial Protocol
+
+The firmware communicates over the USB CDC port at 115200 baud.
+
+| Command | Response | Description |
+|---|---|---|
+| `RPM` | `RPM:2850 DUTY:50%` | Reads current RPM and duty cycle |
+| `GET` | `RPM:2850 DUTY:50%` | Alias for RPM |
+| `SET 75` | `OK` | Sets duty cycle to 75% |
+| `75` | `OK` | Numeric alias for SET |
+
+```bash
+# Manual test
+echo "RPM" | sudo tee /dev/ttyACM0
+cat /dev/ttyACM0
+
+# Or with minicom
+minicom -D /dev/ttyACM0 -b 115200
 ```
 
 ---
@@ -161,27 +181,6 @@ pico-fan manual 75
 pico-fan version
 ```
 
-## Serial Protocol
-
-The firmware communicates over the USB CDC port at 115200 baud.
-
-| Command | Response | Description |
-|---|---|---|
-| `RPM` | `RPM:2850 DUTY:50%` | Reads current RPM and duty cycle |
-| `GET` | `RPM:2850 DUTY:50%` | Alias for RPM |
-| `SET 75` | `OK` | Sets duty cycle to 75% |
-| `75` | `OK` | Numeric alias for SET |
-
-```bash
-# Manual test
-echo "RPM" | sudo tee /dev/ttyACM0
-cat /dev/ttyACM0
-
-# Or with minicom
-minicom -D /dev/ttyACM0 -b 115200
-```
-
----
 
 ## Operating Curve
 
@@ -250,7 +249,7 @@ sudo apt purge pico-fan
 
 ## Troubleshooting
 
-### Pico is not detected
+### Check if the Pico is detected
 ```bash
 ls /dev/serial/by-id/
 lsusb | grep -i "2e8a"

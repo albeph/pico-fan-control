@@ -2,9 +2,8 @@
 
 > **USB Fan Control via Raspberry Pi Pico / RP2040 (Userspace IPC Daemon)**
 
-[![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)](https://github.com)
-[![Linux](https://img.shields.io/badge/Linux-Userspace%20Daemon-blue?logo=linux)](https://github.com)
-[![MicroPython](https://img.shields.io/badge/MicroPython-RP2040-green?logo=micropython)](https://github.com)
+![Debian Package](https://img.shields.io/badge/Debian-Package-red?logo=debian)
+![MicroPython](https://img.shields.io/badge/MicroPython-RP2040-green?logo=micropython)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 
 ---

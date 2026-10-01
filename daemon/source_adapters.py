@@ -107,7 +107,12 @@ class RpmSourceAdapter(SourceAdapter):
 class TempSourceAdapter(SourceAdapter):
     """
     Adapter for monitoring system temperature sensors via hwmon.
+    Supports temperature hysteresis to eliminate boundary jitter.
     """
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self._last_duty: Optional[int] = None
 
     @property
     def name(self) -> str:
@@ -123,12 +128,42 @@ class TempSourceAdapter(SourceAdapter):
         return float(temp) if temp is not None else 0.0
 
     def compute_duty(self, value: float) -> int:
-        high_thr = self.config.get("temp_threshold_high", 80)
-        mid_thr  = self.config.get("temp_threshold_mid",  60)
-        d_high   = self.config.get("duty_high",           100)
-        d_mid    = self.config.get("duty_mid",            50)
-        d_low    = self.config.get("duty_low",            0)
-        return self._compute_stepped_duty(value, high_thr, mid_thr, d_high, d_mid, d_low)
+        high_thr = float(self.config.get("temp_threshold_high", 80))
+        mid_thr  = float(self.config.get("temp_threshold_mid",  60))
+        d_high   = int(self.config.get("duty_high",           100))
+        d_mid    = int(self.config.get("duty_mid",            50))
+        d_low    = int(self.config.get("duty_low",            0))
+        hyst     = float(self.config.get("temp_hysteresis",    3))
+
+        # If hysteresis is disabled or no previous duty was recorded
+        if hyst <= 0 or self._last_duty is None:
+            duty = self._compute_stepped_duty(value, high_thr, mid_thr, d_high, d_mid, d_low)
+            self._last_duty = duty
+            return duty
+
+        # Apply hysteresis based on the current state
+        if self._last_duty == d_high:
+            if value < (high_thr - hyst):
+                duty = d_low if value < (mid_thr - hyst) else d_mid
+            else:
+                duty = d_high
+        elif self._last_duty == d_mid:
+            if value > high_thr:
+                duty = d_high
+            elif value < (mid_thr - hyst):
+                duty = d_low
+            else:
+                duty = d_mid
+        else:
+            if value > high_thr:
+                duty = d_high
+            elif value >= mid_thr:
+                duty = d_mid
+            else:
+                duty = d_low
+
+        self._last_duty = duty
+        return duty
 
     def format_value(self, value: float) -> str:
         return f"{value:.1f}°C"

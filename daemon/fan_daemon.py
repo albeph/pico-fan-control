@@ -46,6 +46,11 @@ try:
 except ImportError:
     raise SystemExit("Errore: source_adapters non disponibile")
 
+try:
+    from duty_stabilizer import DutyStabilizer
+except ImportError:
+    raise SystemExit("Errore: duty_stabilizer non disponibile")
+
 # ---------------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------------
@@ -71,6 +76,9 @@ DEFAULT_CONFIG  = {
     "hwmon_temp_path":    "",     # Temperature sensor path (auto-detected if empty)
     "temp_threshold_high": 80,   # °C above which duty_high is applied
     "temp_threshold_mid":  60,   # °C above which duty_mid is applied
+    "step_down_hold_seconds": 10.0, # Delay (s) before stepping down duty
+    "ramp_down_step":     10,    # Duty % decremented per cycle after hold expires
+    "temp_hysteresis":    3,     # °C hysteresis to prevent flapping at threshold borders
 }
 
 # ===========================================================================
@@ -189,6 +197,14 @@ class FanDaemon:
         self.manual_mode     = False              # True when user has taken manual control
         self.manual_duty     = 0                  # Manually specified duty cycle
 
+        hold_sec = float(config.get("step_down_hold_seconds", DEFAULT_CONFIG["step_down_hold_seconds"]))
+        ramp_st  = int(config.get("ramp_down_step", DEFAULT_CONFIG["ramp_down_step"]))
+        self.stabilizer      = DutyStabilizer(
+            hold_seconds=hold_sec,
+            ramp_step=ramp_st,
+            initial_duty=self.current_duty,
+        )
+
     # -------------------------------------------------------------------
     # Initial setup and IPC
     # -------------------------------------------------------------------
@@ -229,6 +245,7 @@ class FanDaemon:
                                 with self._lock:
                                     self.manual_mode = True
                                     self.manual_duty = duty
+                                    self.stabilizer.reset(duty)
                                     self.current_duty = -1  # force re-transmission on next cycle
                                 logger.info("Modalità manuale attivata: duty=%d%%", duty)
                                 conn.sendall(b"OK\n")
@@ -239,6 +256,7 @@ class FanDaemon:
                             # Restore automatic control
                             with self._lock:
                                 self.manual_mode = False
+                                self.stabilizer.reset(self.current_duty if self.current_duty >= 0 else 0)
                                 self.current_duty = -1  # force re-transmission on next cycle
                             logger.info("Controllo automatico ripristinato")
                             conn.sendall(b"OK\n")
@@ -246,6 +264,7 @@ class FanDaemon:
                         else:
                             # STATUS (or empty command): respond with current state JSON
                             with self._lock:
+                                is_temp = self.source_adapter.name == "temp"
                                 state = {
                                     "connected":        self.pico_adapter is not None and self.pico_adapter.connected,
                                     "pico_port":        self.pico_port,
@@ -255,6 +274,10 @@ class FanDaemon:
                                     "internal_rpm":     self.internal_rpm,
                                     "pico_rpm":         self.pico_rpm,
                                     "current_duty":     self.current_duty if self.current_duty >= 0 else 0,
+                                    "target_duty":      self.stabilizer.target_duty if is_temp else (self.current_duty if self.current_duty >= 0 else 0),
+                                    "hold_active":      self.stabilizer.is_holding if is_temp else False,
+                                    "hold_remaining":   round(self.stabilizer.hold_remaining, 1) if is_temp else 0.0,
+                                    "ramp_active":      self.stabilizer.is_ramping if is_temp else False,
                                     "manual_mode":      self.manual_mode,
                                     "version":          __version__,
                                 }
@@ -396,23 +419,40 @@ class FanDaemon:
 
             if in_manual:
                 target_duty = man_duty
+                self.stabilizer.reset(man_duty)
             else:
-                target_duty = self.source_adapter.compute_duty(self.source_value)
+                raw_target = self.source_adapter.compute_duty(self.source_value)
+                if self.source_adapter.name == "temp":
+                    target_duty = self.stabilizer.update(raw_target)
+                else:
+                    target_duty = raw_target
 
             if target_duty != self.current_duty:
                 source_str = self.source_adapter.format_value(self.source_value)
+                extra = ""
+                if in_manual:
+                    extra = " [MANUALE]"
+                elif self.source_adapter.name == "temp" and self.stabilizer.is_ramping:
+                    extra = f" [RAMPA -> {self.stabilizer.target_duty}%]"
                 logger.info(
                     "Cambio duty: %s%% -> %s%% (%s%s)",
                     self.current_duty if self.current_duty >= 0 else "N/A",
                     target_duty,
                     source_str,
-                    " [MANUALE]" if in_manual else "",
+                    extra,
                 )
                 success = self.pico_adapter.set_duty(target_duty)
                 if success:
                     self.current_duty = target_duty
                 else:
                     logger.warning("Invio comando SET fallito")
+            elif not in_manual and self.source_adapter.name == "temp" and self.stabilizer.is_holding:
+                logger.debug(
+                    "Hold attivo su duty=%d%% (target grezzo=%d%%, %.1fs rimanenti)",
+                    self.current_duty,
+                    self.stabilizer.target_duty,
+                    self.stabilizer.hold_remaining,
+                )
 
             # ----------------------------------------------------------------
             # Phase 4: Read external fan RPM

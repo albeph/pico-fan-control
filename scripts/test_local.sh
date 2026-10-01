@@ -46,6 +46,7 @@ test_python_syntax() {
         "${REPO_ROOT}/daemon/fan_daemon.py"
         "${REPO_ROOT}/daemon/source_adapters.py"
         "${REPO_ROOT}/daemon/temp_reader.py"
+        "${REPO_ROOT}/daemon/duty_stabilizer.py"
         "${REPO_ROOT}/daemon/hardware_detector.py"
         "${REPO_ROOT}/daemon/version.py"
         "${REPO_ROOT}/cli/ANSI_colors.py"
@@ -303,6 +304,50 @@ try:
     assert temp_reader.compute_target_duty_temp(65.0, {}) == 50
     assert temp_reader.compute_target_duty_temp(45.0, {}) == 0
     print('  compute_target_duty_temp: OK')
+
+    # Test TempSourceAdapter hysteresis
+    temp_hyst_adapter = get_source_adapter({'control_source': 'temp', 'temp_hysteresis': 3})
+    assert temp_hyst_adapter.compute_duty(85.0) == 100, 'Initial high'
+    assert temp_hyst_adapter.compute_duty(78.0) == 100, 'Hysteresis hold at 78C'
+    assert temp_hyst_adapter.compute_duty(76.0) == 50,  'Hysteresis drop below 77C'
+    assert temp_hyst_adapter.compute_duty(58.0) == 50,  'Hysteresis hold at 58C'
+    assert temp_hyst_adapter.compute_duty(55.0) == 0,   'Hysteresis drop below 57C'
+    assert temp_hyst_adapter.compute_duty(58.0) == 0,   'Remain low until 60C'
+    assert temp_hyst_adapter.compute_duty(61.0) == 50,  'Rise to mid at 61C'
+    print('  TempSourceAdapter hysteresis: OK')
+
+    # Test DutyStabilizer (Hold-down timer + Ramp-down)
+    from duty_stabilizer import DutyStabilizer
+    stab = DutyStabilizer(hold_seconds=10.0, ramp_step=10, initial_duty=0)
+    assert stab.update(100, now=0.0) == 100, 'Fast attack 0->100'
+    assert stab.update(50, now=0.0) == 100,  'Hold starts at t=0'
+    assert stab.is_holding, 'Should be holding'
+    assert stab.update(50, now=5.0) == 100,  'Hold at t=5'
+    # Spike at t=6
+    assert stab.update(100, now=6.0) == 100, 'Spike resets hold'
+    assert not stab.is_holding, 'Hold aborted by spike'
+    # Drop again at t=7
+    assert stab.update(50, now=7.0) == 100,  'New hold starts at t=7'
+    assert stab.is_holding, 'Should be holding'
+    # Hold expires at t=17.0 -> ramp starts
+    assert stab.update(50, now=17.0) == 90,  'Hold expired, ramp to 90'
+    assert stab.is_ramping, 'Should be ramping'
+    assert not stab.is_holding, 'No longer holding'
+    assert stab.update(50, now=19.0) == 80,  'Ramp to 80'
+    # Spike interrupts ramp at t=20
+    assert stab.update(100, now=20.0) == 100, 'Spike interrupts ramp'
+    assert not stab.is_ramping, 'Ramp aborted by spike'
+    # Complete ramp to 50
+    assert stab.update(50, now=21.0) == 100, 'Hold at t=21'
+    assert stab.update(50, now=31.0) == 90,  'Ramp 90 at t=31'
+    assert stab.update(50, now=33.0) == 80,  'Ramp 80'
+    assert stab.update(50, now=35.0) == 70,  'Ramp 70'
+    assert stab.update(50, now=37.0) == 60,  'Ramp 60'
+    assert stab.update(50, now=39.0) == 50,  'Target 50 reached'
+    assert not stab.is_ramping, 'Ramp finished'
+    assert not stab.is_holding, 'Not holding'
+    assert stab.update(50, now=41.0) == 50,  'Steady state at 50'
+    print('  DutyStabilizer hold & ramp: OK')
 
     print('  Daemon & Adapter modules loaded successfully')
 except ImportError as e:

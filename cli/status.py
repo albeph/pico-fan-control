@@ -48,11 +48,22 @@ def main():
         source_label = "Sorgente (RPM)"
         source_str = source_formatted or f"{int_rpm} RPM"
 
+    hold_active = state.get("hold_active", False)
+    hold_rem = state.get("hold_remaining", 0.0)
+    ramp_active = state.get("ramp_active", False)
+    target_duty = state.get("target_duty", duty)
+
+    duty_extra = ""
+    if hold_active:
+        duty_extra = f" {YELLOW}[Hold: {hold_rem:.1f}s rimanenti]{RESET}"
+    elif ramp_active:
+        duty_extra = f" {CYAN}[Rampa discesa -> {target_duty}%]{RESET}"
+
     cprint(f"\n=== pico-fan-control v{version} ===\n", CYAN, bold=True)
     cprint(f" Stato dispositivo:   {status_str} ({port})", BOLD)
     cprint(f" Modalità controllo:  {control_source.upper()}", BOLD)
     cprint(f" {source_label}:  {source_str}", BOLD)
-    cprint(f" Destinazione (Pico): {ext_rpm} RPM  [Target PWM: {duty}%]", BOLD)
+    cprint(f" Destinazione (Pico): {ext_rpm} RPM  [Target PWM: {duty}%]{duty_extra}", BOLD)
     print()
 
 if __name__ == "__main__":

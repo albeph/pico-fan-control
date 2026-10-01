@@ -17,6 +17,10 @@
 
   "temp_threshold_high": 80,
   "temp_threshold_mid":  60,
+  "temp_hysteresis":    3,
+
+  "step_down_hold_seconds": 10.0,
+  "ramp_down_step":     10,
 
   "duty_high":          100,
   "duty_mid":           50,
@@ -34,6 +38,9 @@
   "_doc_rpm_threshold_mid":  "RPM interni sopra cui la ventola esterna va al duty_mid (solo modalità rpm)",
   "_doc_temp_threshold_high":"Temperatura (°C) sopra cui la ventola esterna va al duty_high (solo modalità temp)",
   "_doc_temp_threshold_mid": "Temperatura (°C) sopra cui la ventola esterna va al duty_mid (solo modalità temp)",
+  "_doc_temp_hysteresis":    "Isteresi in °C per evitare oscillazioni attorno alle soglie di temperatura",
+  "_doc_step_down_hold_seconds": "Secondi di attesa prima di abbassare il duty cycle (anti-hunting)",
+  "_doc_ramp_down_step":     "Percentuale di decremento duty a ogni intervallo terminato l'hold (rampa graduale)",
   "_doc_duty_high":          "Duty cycle (%) per soglia alta",
   "_doc_duty_mid":           "Duty cycle (%) per soglia media",
   "_doc_duty_low":           "Duty cycle (%) per soglia bassa",

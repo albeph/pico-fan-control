@@ -110,17 +110,45 @@ def step_configure_temp_thresholds(duty_high: int = 100) -> dict:
         cprint("⚠ La soglia alta deve essere > soglia media. Uso valori di default.", YELLOW)
         high_val, mid_val = 80, 60
 
+    cprint("\nStabilizzazione termica (Anti-Hunting & Cooldown):", CYAN, bold=True)
+    cprint(
+        "  Evita che la ventola scatti al massimo per frazioni di secondo e crolli subito dopo\n"
+        "  a causa di repentini burst della CPU (mantiene il regime per 10s e scende gradualmente).\n"
+        "  ℹ Nota: La spiegazione dettagliata di questo comportamento è presente nel file README.md.\n",
+        DIM,
+    )
+
+    enable_smoothing = ask_yes_no(
+        "Abilitare la stabilizzazione della ventola (hold 10s + discesa graduale)?",
+        default=True,
+    )
+
+    if enable_smoothing:
+        hold_val = 10.0
+        ramp_val = 10
+        hyst_val = 3
+        smoothing_summary = f"Attiva (Hold {hold_val:.0f}s, rampa {ramp_val}%, isteresi {hyst_val}°C)"
+    else:
+        hold_val = 0.0
+        ramp_val = 100
+        hyst_val = 0
+        smoothing_summary = "Disattivata (risposta istantanea diretta)"
+
     cprint(
         f"\n✓ Configurazione soglie:\n"
         f"  > {high_val}°C  → {duty_high}%\n"
         f"  {mid_val}-{high_val}°C → 50%\n"
-        f"  < {mid_val}°C  → 0%",
+        f"  < {mid_val}°C  → 0%\n"
+        f"  Stabilizzazione: {smoothing_summary}",
         GREEN,
     )
 
     return {
         "temp_threshold_high": high_val,
         "temp_threshold_mid":  mid_val,
+        "temp_hysteresis":     hyst_val,
+        "step_down_hold_seconds": hold_val,
+        "ramp_down_step":      ramp_val,
         "duty_high":           duty_high,
         "duty_mid":            50,
         "duty_low":            0,

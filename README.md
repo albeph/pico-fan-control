@@ -182,7 +182,13 @@ pico-fan version
 ```
 
 
-## Operating Curve
+## Operating Curves & Control Modes
+
+`pico-fan-control` supports two input control sources (`control_source`): **RPM** (synchronizing with the internal fan) and **Temperature** (monitoring CPU/package sensors via hwmon).
+
+### 1. RPM Mode (`control_source: "rpm"`)
+
+The external fan follows the internal fan speed directly:
 
 | Internal fan RPM | External fan duty |
 |---|---|
@@ -190,7 +196,37 @@ pico-fan version
 | 2500 – 4000 RPM | **50%** (medium speed) |
 | < 2500 RPM | **0%** (off) |
 
-Thresholds are configurable in `/etc/pico-fan/config.json`.
+In RPM mode, speed changes are applied immediately to mirror internal cooling hardware.
+
+---
+
+### 2. Temperature Mode & Fan Stabilization (`control_source: "temp"`)
+
+| Temperature | External fan duty |
+|---|---|
+| > 80°C | **100%** (duty_high) |
+| 60°C – 80°C | **50%** (duty_mid) |
+| < 60°C | **0%** (duty_low) |
+
+#### The "Fan Hunting" Problem & Anti-Hunting Solution
+Modern multi-core processors frequently enter brief Turbo Boost states (lasting fractions of a second up to a few seconds) for simple tasks like opening an application or compiling code. This causes sudden CPU core temperature spikes of 20°C–30°C that dissipate almost immediately.
+
+Without stabilization, raw temperature control causes the fan to screech up to 100% for a fraction of a second, abruptly cut down to 0% or 50%, and surge again shortly after (*fan hunting / sawtooth jitter*).
+
+To solve this, `pico-fan-control` implements a **3-tier asymmetric stabilization strategy**:
+
+1. **Fast Attack (Immediate Acceleration)**:
+   - When temperature rises and requires a higher duty cycle (e.g. 0% → 50% or 50% → 100%), the fan reacts **immediately** without delay. Hardware safety and thermal protection are always prioritized.
+2. **Phase 1: Step-Down Hold Timer (`step_down_hold_seconds: 10.0`)**:
+   - When temperature drops and requests a lower duty cycle, the fan maintains its current higher speed for a configurable hold window (**10 seconds** by default).
+   - If a new temperature spike occurs during this hold window, the hold is aborted and the fan stays at the high speed continuously, avoiding the annoying "rev-up → cut-off → rev-up" cycle.
+3. **Phase 2: Gradual Ramp-Down (`ramp_down_step: 10`)**:
+   - If temperature stays low for the entire 10 seconds, the fan does not drop abruptly. Instead, it smoothly decrements by 10% on each polling cycle until reaching the lower target step.
+   - If temperature rises at any moment during the ramp-down, the ramp is interrupted and the fan immediately accelerates.
+4. **Thermal Hysteresis (`temp_hysteresis: 3` °C)**:
+   - A 3°C deadband prevents continuous toggling around threshold borders (e.g. at 79.9°C vs 80.1°C). Once 100% is reached (> 80°C), temperature must drop below 77°C (80 - 3) before a step-down is even initiated.
+
+> ℹ️ **Setup configuration**: During `sudo pico-fan setup`, the wizard asks if you want to enable this anti-hunting stabilization. You can also tune or disable it directly in `/etc/pico-fan/config.json` by setting `"step_down_hold_seconds": 0` and `"ramp_down_step": 100`.
 
 ---
 
@@ -201,9 +237,13 @@ File: `/etc/pico-fan/config.json`
 ```json
 {
   "pico_serial_by_id":  "/dev/serial/by-id/usb-MicroPython_Board_...",
-  "ibm_fan_path":       "/proc/acpi/ibm/fan",
-  "rpm_threshold_high": 4000,
-  "rpm_threshold_mid":  2500,
+  "control_source":     "temp",
+  "hwmon_temp_path":    "",
+  "temp_threshold_high": 80,
+  "temp_threshold_mid":  60,
+  "temp_hysteresis":     3,
+  "step_down_hold_seconds": 10.0,
+  "ramp_down_step":      10,
   "duty_high":          100,
   "duty_mid":           50,
   "duty_low":           0,

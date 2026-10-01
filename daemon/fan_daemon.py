@@ -41,6 +41,11 @@ try:
 except ImportError:
     raise SystemExit("Errore: temp_reader non disponibile")
 
+try:
+    from source_adapters import get_source_adapter, SourceAdapter
+except ImportError:
+    raise SystemExit("Errore: source_adapters non disponibile")
+
 # ---------------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------------
@@ -152,19 +157,10 @@ def read_internal_rpm(config: dict) -> int:
 def compute_target_duty(rpm: int, config: dict) -> int:
     """
     Computes target duty cycle based on internal RPM and configured thresholds.
+    Delegates to RpmSourceAdapter.
     """
-    high_thr = config.get("rpm_threshold_high", DEFAULT_CONFIG["rpm_threshold_high"])
-    mid_thr  = config.get("rpm_threshold_mid",  DEFAULT_CONFIG["rpm_threshold_mid"])
-    d_high   = config.get("duty_high",           DEFAULT_CONFIG["duty_high"])
-    d_mid    = config.get("duty_mid",            DEFAULT_CONFIG["duty_mid"])
-    d_low    = config.get("duty_low",            DEFAULT_CONFIG["duty_low"])
-
-    if rpm > high_thr:
-        return d_high
-    elif rpm >= mid_thr:
-        return d_mid
-    else:
-        return d_low
+    from source_adapters import RpmSourceAdapter
+    return RpmSourceAdapter(config).compute_duty(rpm)
 
 
 # ===========================================================================
@@ -179,13 +175,14 @@ class FanDaemon:
 
     def __init__(self, config: dict):
         self.config          = config
+        self.source_adapter  = get_source_adapter(config)
         self.running         = True
         self.current_duty    = -1          # -1 = not yet transmitted
         self.pico_adapter: Optional[PicoAdapter] = None
         self.pico_port: str  = ""
         self.pico_rpm: int   = 0
         self.internal_rpm: int = 0
-        self.source_value    = 0           # Current source reading (RPM or °C)
+        self.source_value: float = 0.0     # Current source reading (RPM or °C)
         self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
         self._stop_event     = threading.Event()  # used for interruptible sleep without busy-polling
@@ -250,15 +247,16 @@ class FanDaemon:
                             # STATUS (or empty command): respond with current state JSON
                             with self._lock:
                                 state = {
-                                    "connected":      self.pico_adapter is not None and self.pico_adapter.connected,
-                                    "pico_port":      self.pico_port,
-                                    "control_source": self.config.get("control_source", "rpm"),
-                                    "source_value":   self.source_value,
-                                    "internal_rpm":   self.internal_rpm,
-                                    "pico_rpm":       self.pico_rpm,
-                                    "current_duty":   self.current_duty if self.current_duty >= 0 else 0,
-                                    "manual_mode":    self.manual_mode,
-                                    "version":        __version__,
+                                    "connected":        self.pico_adapter is not None and self.pico_adapter.connected,
+                                    "pico_port":        self.pico_port,
+                                    "control_source":   self.source_adapter.name,
+                                    "source_value":     self.source_value,
+                                    "source_formatted": self.source_adapter.format_value(self.source_value),
+                                    "internal_rpm":     self.internal_rpm,
+                                    "pico_rpm":         self.pico_rpm,
+                                    "current_duty":     self.current_duty if self.current_duty >= 0 else 0,
+                                    "manual_mode":      self.manual_mode,
+                                    "version":          __version__,
                                 }
                             conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
 
@@ -375,19 +373,19 @@ class FanDaemon:
                     continue
 
             # ----------------------------------------------------------------
-            # Phase 2: Read source value (RPM or Temperature)
+            # Phase 2: Read source value via Adapter
             # ----------------------------------------------------------------
-            control_source = self.config.get("control_source", "rpm")
-
-            if control_source == "temp":
-                temp = read_temperature(self.config)
-                self.source_value = temp if temp is not None else 0
-                self.internal_rpm = 0  # Not used in temp mode
-                logger.debug("Temperatura: %.1f°C", self.source_value)
+            self.source_value = self.source_adapter.read()
+            if self.source_adapter.name == "rpm":
+                self.internal_rpm = int(self.source_value)
             else:
-                self.internal_rpm = read_internal_rpm(self.config)
-                self.source_value = self.internal_rpm
-                logger.debug("RPM interni: %d", self.internal_rpm)
+                self.internal_rpm = 0
+
+            logger.debug(
+                "Lettura sorgente [%s]: %s",
+                self.source_adapter.name,
+                self.source_adapter.format_value(self.source_value),
+            )
 
             # ----------------------------------------------------------------
             # Phase 3: Calculate duty and send command (only on change)
@@ -398,16 +396,11 @@ class FanDaemon:
 
             if in_manual:
                 target_duty = man_duty
-            elif control_source == "temp":
-                target_duty = compute_target_duty_temp(self.source_value, self.config)
             else:
-                target_duty = compute_target_duty(self.internal_rpm, self.config)
+                target_duty = self.source_adapter.compute_duty(self.source_value)
 
             if target_duty != self.current_duty:
-                if control_source == "temp":
-                    source_str = "Temp: %.1f°C" % self.source_value
-                else:
-                    source_str = "RPM interni: %d" % self.internal_rpm
+                source_str = self.source_adapter.format_value(self.source_value)
                 logger.info(
                     "Cambio duty: %s%% -> %s%% (%s%s)",
                     self.current_duty if self.current_duty >= 0 else "N/A",

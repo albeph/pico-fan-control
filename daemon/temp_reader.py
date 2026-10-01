@@ -121,21 +121,7 @@ def read_temperature(config: dict) -> Optional[float]:
 def compute_target_duty_temp(temp: float, config: dict) -> int:
     """
     Computes target duty cycle based on temperature and configured thresholds.
-
-    Default thresholds:
-        > 80°C  -> duty_high (100%)
-        >= 60°C -> duty_mid  (50%)
-        < 60°C  -> duty_low  (0%)
+    Delegates to TempSourceAdapter.
     """
-    high_thr = config.get("temp_threshold_high", 80)
-    mid_thr  = config.get("temp_threshold_mid",  60)
-    d_high   = config.get("duty_high", 100)
-    d_mid    = config.get("duty_mid",   50)
-    d_low    = config.get("duty_low",    0)
-
-    if temp > high_thr:
-        return d_high
-    elif temp >= mid_thr:
-        return d_mid
-    else:
-        return d_low
+    from source_adapters import TempSourceAdapter
+    return TempSourceAdapter(config).compute_duty(temp)

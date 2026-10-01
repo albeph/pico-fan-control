@@ -39,12 +39,14 @@ def main():
     # Format output strings
     status_str = f"{GREEN}Connesso{RESET}" if connected else f"{RED}Scollegato{RESET}"
 
+    source_formatted = state.get("source_formatted", "")
+
     if control_source == "temp":
         source_label = "Sorgente (Temperatura)"
-        source_str = f"{source_value:.1f}°C" if isinstance(source_value, (int, float)) else "N/A"
+        source_str = source_formatted or (f"{source_value:.1f}°C" if isinstance(source_value, (int, float)) else "N/A")
     else:
         source_label = "Sorgente (RPM)"
-        source_str = f"{int_rpm} RPM"
+        source_str = source_formatted or f"{int_rpm} RPM"
 
     cprint(f"\n=== pico-fan-control v{version} ===\n", CYAN, bold=True)
     cprint(f" Stato dispositivo:   {status_str} ({port})", BOLD)

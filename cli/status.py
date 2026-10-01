@@ -29,6 +29,8 @@ def main():
     # Parse received state
     connected = state.get("connected", False)
     port = state.get("pico_port", "N/A")
+    control_source = state.get("control_source", "rpm")
+    source_value = state.get("source_value", 0)
     int_rpm = state.get("internal_rpm", 0)
     ext_rpm = state.get("pico_rpm", 0)
     duty = state.get("current_duty", 0)
@@ -36,10 +38,20 @@ def main():
 
     # Format output strings
     status_str = f"{GREEN}Connesso{RESET}" if connected else f"{RED}Scollegato{RESET}"
-    
+
+    source_formatted = state.get("source_formatted", "")
+
+    if control_source == "temp":
+        source_label = "Sorgente (Temperatura)"
+        source_str = source_formatted or (f"{source_value:.1f}°C" if isinstance(source_value, (int, float)) else "N/A")
+    else:
+        source_label = "Sorgente (RPM)"
+        source_str = source_formatted or f"{int_rpm} RPM"
+
     cprint(f"\n=== pico-fan-control v{version} ===\n", CYAN, bold=True)
-    cprint(f" Stato dispositivo:  {status_str} ({port})", BOLD)
-    cprint(f" Sorgente (Server):  {int_rpm} RPM", BOLD)
+    cprint(f" Stato dispositivo:   {status_str} ({port})", BOLD)
+    cprint(f" Modalità controllo:  {control_source.upper()}", BOLD)
+    cprint(f" {source_label}:  {source_str}", BOLD)
     cprint(f" Destinazione (Pico): {ext_rpm} RPM  [Target PWM: {duty}%]", BOLD)
     print()
 

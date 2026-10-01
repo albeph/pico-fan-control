@@ -44,11 +44,15 @@ test_python_syntax() {
         "${REPO_ROOT}/firmware/main.py"
         "${REPO_ROOT}/daemon/pico_adapter.py"
         "${REPO_ROOT}/daemon/fan_daemon.py"
+        "${REPO_ROOT}/daemon/source_adapters.py"
+        "${REPO_ROOT}/daemon/temp_reader.py"
         "${REPO_ROOT}/daemon/hardware_detector.py"
         "${REPO_ROOT}/daemon/version.py"
         "${REPO_ROOT}/cli/ANSI_colors.py"
         "${REPO_ROOT}/cli/ipc_adapter.py"
+        "${REPO_ROOT}/cli/wizard_helpers.py"
         "${REPO_ROOT}/cli/setup_wizard.py"
+        "${REPO_ROOT}/cli/temp_wizard.py"
         "${REPO_ROOT}/cli/status.py"
         "${REPO_ROOT}/cli/manual.py"
         "${REPO_ROOT}/cli/main.py"
@@ -265,16 +269,42 @@ test_daemon_dryrun() {
     $PYTHON -c "
 import sys, os
 sys.path.insert(0, '${REPO_ROOT}/daemon')
-# Test only functions that do not require hardware
 try:
     import fan_daemon
-    # Test compute_target_duty
+    from source_adapters import get_source_adapter, RpmSourceAdapter, TempSourceAdapter
+    import temp_reader
+
+    # Test compute_target_duty (RPM)
     cfg = fan_daemon.DEFAULT_CONFIG
     assert fan_daemon.compute_target_duty(5000, cfg) == 100, 'duty_high failed'
     assert fan_daemon.compute_target_duty(3000, cfg) == 50,  'duty_mid failed'
     assert fan_daemon.compute_target_duty(1000, cfg) == 0,   'duty_low failed'
     print('  compute_target_duty: OK')
-    print('  Daemon modules loaded successfully')
+
+    # Test Source Adapters directly
+    rpm_adapter = get_source_adapter({'control_source': 'rpm'})
+    assert isinstance(rpm_adapter, RpmSourceAdapter)
+    assert rpm_adapter.compute_duty(4500) == 100
+    assert rpm_adapter.compute_duty(3000) == 50
+    assert rpm_adapter.compute_duty(1000) == 0
+    assert rpm_adapter.format_value(2500) == '2500 RPM'
+    print('  RpmSourceAdapter: OK')
+
+    temp_adapter = get_source_adapter({'control_source': 'temp'})
+    assert isinstance(temp_adapter, TempSourceAdapter)
+    assert temp_adapter.compute_duty(85.0) == 100
+    assert temp_adapter.compute_duty(65.0) == 50
+    assert temp_adapter.compute_duty(45.0) == 0
+    assert temp_adapter.format_value(65.4) == '65.4°C'
+    print('  TempSourceAdapter: OK')
+
+    # Test temp_reader legacy function
+    assert temp_reader.compute_target_duty_temp(85.0, {}) == 100
+    assert temp_reader.compute_target_duty_temp(65.0, {}) == 50
+    assert temp_reader.compute_target_duty_temp(45.0, {}) == 0
+    print('  compute_target_duty_temp: OK')
+
+    print('  Daemon & Adapter modules loaded successfully')
 except ImportError as e:
     print(f'  Import failed: {e}')
     print('  Install: pip install pyserial')

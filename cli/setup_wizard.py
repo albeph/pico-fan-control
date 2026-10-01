@@ -45,6 +45,15 @@ except ImportError as e:
     cprint("Assicurarsi che il pacchetto sia installato correttamente.", RED)
     sys.exit(1)
 
+try:
+    from temp_wizard import (
+        step_select_temp_sensor,
+        step_configure_temp_thresholds,
+    )
+except ImportError as e:
+    cprint(f"Errore di importazione modulo temp_wizard: {e}", RED)
+    sys.exit(1)
+
 import serial.serialutil
 
 # ---------------------------------------------------------------------------
@@ -157,51 +166,38 @@ def banner() -> None:
 """, CYAN, bold=True)
 
 
-def separator(title: str = "") -> None:
-    width = 60
-    if title:
-        pad = (width - len(title) - 2) // 2
-        cprint(f"\n{'─' * pad} {title} {'─' * pad}\n", CYAN)
+from wizard_helpers import ask, ask_yes_no, pick_from_list, separator
+
+
+# ===========================================================================
+# STEP: Select control source (RPM or Temperature)
+# ===========================================================================
+
+def step_select_control_source() -> str:
+    """
+    Asks the user to choose the fan control source.
+    Returns 'rpm' or 'temp'.
+    """
+    separator("Selezione sorgente di controllo")
+
+    cprint(
+        "La ventola esterna può essere controllata in base a:\n",
+        CYAN,
+    )
+
+    options = [
+        "RPM della ventola interna (comportamento classico)",
+        "Sensore di temperatura (CPU / motherboard)",
+    ]
+
+    idx = pick_from_list(options, "Seleziona la sorgente di controllo")
+
+    if idx == 1:
+        cprint("\n✓ Sorgente selezionata: Sensore di temperatura", GREEN)
+        return "temp"
     else:
-        cprint("─" * width, DIM)
-
-
-def ask(prompt: str, default: str = "") -> str:
-    """Interactive prompt with default value support."""
-    if default:
-        full_prompt = f"{prompt} [{default}]: "
-    else:
-        full_prompt = f"{prompt}: "
-    cwrite(full_prompt, WHITE, bold=True)
-    sys.stdout.flush()
-    try:
-        answer = input().strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return default
-    return answer if answer else default
-
-
-def ask_yes_no(prompt: str, default: bool = True) -> bool:
-    """Prompts for Y/N confirmation."""
-    hint = "Y/n" if default else "y/N"
-    answer = ask(f"{prompt} ({hint})", "y" if default else "n")
-    return answer.lower() in ("y", "yes", "s", "si", "sì", "1", "true")
-
-
-def pick_from_list(items: list, prompt: str = "Scelta") -> Optional[int]:
-    """Displays a numbered list and prompts the user to select an option."""
-    for i, item in enumerate(items, 1):
-        cprint(f"  [{i}] {item}", WHITE)
-    answer = ask(f"\n{prompt} (1-{len(items)})", "1")
-    try:
-        idx = int(answer) - 1
-        if 0 <= idx < len(items):
-            return idx
-    except ValueError:
-        pass
-    cprint("Scelta non valida, uso la prima opzione.", YELLOW)
-    return 0
+        cprint("\n✓ Sorgente selezionata: RPM ventola interna", GREEN)
+        return "rpm"
 
 
 # ===========================================================================
@@ -522,12 +518,15 @@ def step_save_config(
     device: PicoDevice,
     fan_config: dict,
     thresholds: dict,
+    control_source: str = "rpm",
+    temp_config: dict | None = None,
 ) -> bool:
     """Writes the final configuration to /etc/pico-fan/config.json."""
-    separator("STEP 5 - Salvataggio configurazione")
+    separator("Salvataggio configurazione")
 
     config = {
         "pico_serial_by_id":  device.by_id_path,
+        "control_source":     control_source,
         "internal_fan_type": fan_config.get("type", "ibm_acpi"),
         "ibm_fan_path":       fan_config.get("path", "/proc/acpi/ibm/fan")
                               if fan_config.get("type") == "ibm_acpi"
@@ -535,6 +534,7 @@ def step_save_config(
         "hwmon_fan_path":     fan_config.get("path", "")
                               if fan_config.get("type") == "hwmon"
                               else "",
+        "hwmon_temp_path":    (temp_config or {}).get("hwmon_temp_path", ""),
         "poll_interval":      2.0,
         "reconnect_interval": 5.0,
         **thresholds,
@@ -619,14 +619,26 @@ def main() -> None:
             sys.exit(1)
         duty_high = 100   # fallback if test failed
 
-    # STEP 3: Internal fan
-    fan_config = step_select_internal_fan()
+    # STEP 3: Select control source (RPM or Temperature)
+    control_source = step_select_control_source()
 
-    # STEP 4: Thresholds (passes optimal duty found during test)
-    thresholds = step_configure_thresholds(duty_high=duty_high)
+    fan_config = {}
+    temp_config = {}
 
-    # STEP 5: Save configuration
-    saved = step_save_config(device, fan_config, thresholds)
+    if control_source == "temp":
+        # Temperature mode: select sensor and configure temp thresholds
+        temp_sensor = step_select_temp_sensor()
+        temp_config = {"hwmon_temp_path": temp_sensor.get("path", "")}
+        thresholds = step_configure_temp_thresholds(duty_high=duty_high)
+    else:
+        # RPM mode: select internal fan and configure RPM thresholds
+        fan_config = step_select_internal_fan()
+        thresholds = step_configure_thresholds(duty_high=duty_high)
+
+    # Save configuration
+    saved = step_save_config(device, fan_config, thresholds,
+                             control_source=control_source,
+                             temp_config=temp_config)
 
     # Final summary
     separator("COMPLETATO")

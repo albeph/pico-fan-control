@@ -47,7 +47,6 @@ except ImportError as e:
 
 try:
     from temp_wizard import (
-        step_select_control_source,
         step_select_temp_sensor,
         step_configure_temp_thresholds,
     )
@@ -168,6 +167,37 @@ def banner() -> None:
 
 
 from wizard_helpers import ask, ask_yes_no, pick_from_list, separator
+
+
+# ===========================================================================
+# STEP: Select control source (RPM or Temperature)
+# ===========================================================================
+
+def step_select_control_source() -> str:
+    """
+    Asks the user to choose the fan control source.
+    Returns 'rpm' or 'temp'.
+    """
+    separator("Selezione sorgente di controllo")
+
+    cprint(
+        "La ventola esterna può essere controllata in base a:\n",
+        CYAN,
+    )
+
+    options = [
+        "RPM della ventola interna (comportamento classico)",
+        "Sensore di temperatura (CPU / motherboard)",
+    ]
+
+    idx = pick_from_list(options, "Seleziona la sorgente di controllo")
+
+    if idx == 1:
+        cprint("\n✓ Sorgente selezionata: Sensore di temperatura", GREEN)
+        return "temp"
+    else:
+        cprint("\n✓ Sorgente selezionata: RPM ventola interna", GREEN)
+        return "rpm"
 
 
 # ===========================================================================

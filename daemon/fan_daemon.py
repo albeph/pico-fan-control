@@ -36,6 +36,11 @@ try:
 except ImportError:
     raise SystemExit("Errore: pyserial o pico_adapter non disponibile")
 
+try:
+    from temp_reader import read_temperature, compute_target_duty_temp
+except ImportError:
+    raise SystemExit("Errore: temp_reader non disponibile")
+
 # ---------------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------------
@@ -48,6 +53,7 @@ CONFIG_PATH     = "/etc/pico-fan/config.json"
 DEFAULT_CONFIG  = {
     "pico_serial_by_id":  "",
     "internal_fan_type":  "ibm_acpi",
+    "control_source":     "rpm",       # 'rpm' (internal fan) or 'temp' (temperature sensor)
     "rpm_threshold_high": 4000,
     "rpm_threshold_mid":  2500,
     "duty_high":          100,
@@ -57,6 +63,9 @@ DEFAULT_CONFIG  = {
     "reconnect_interval": 5.0,
     "hwmon_fan_path":      "",    # Auto-detected if empty
     "ibm_fan_path":       "/proc/acpi/ibm/fan",
+    "hwmon_temp_path":    "",     # Temperature sensor path (auto-detected if empty)
+    "temp_threshold_high": 80,   # °C above which duty_high is applied
+    "temp_threshold_mid":  60,   # °C above which duty_mid is applied
 }
 
 # ===========================================================================
@@ -176,6 +185,7 @@ class FanDaemon:
         self.pico_port: str  = ""
         self.pico_rpm: int   = 0
         self.internal_rpm: int = 0
+        self.source_value    = 0           # Current source reading (RPM or °C)
         self.sock_path       = "/run/pico-fan.sock"
         self._lock           = threading.Lock()
         self._stop_event     = threading.Event()  # used for interruptible sleep without busy-polling
@@ -240,13 +250,15 @@ class FanDaemon:
                             # STATUS (or empty command): respond with current state JSON
                             with self._lock:
                                 state = {
-                                    "connected":    self.pico_adapter is not None and self.pico_adapter.connected,
-                                    "pico_port":    self.pico_port,
-                                    "internal_rpm": self.internal_rpm,
-                                    "pico_rpm":     self.pico_rpm,
-                                    "current_duty": self.current_duty if self.current_duty >= 0 else 0,
-                                    "manual_mode":  self.manual_mode,
-                                    "version":      __version__,
+                                    "connected":      self.pico_adapter is not None and self.pico_adapter.connected,
+                                    "pico_port":      self.pico_port,
+                                    "control_source": self.config.get("control_source", "rpm"),
+                                    "source_value":   self.source_value,
+                                    "internal_rpm":   self.internal_rpm,
+                                    "pico_rpm":       self.pico_rpm,
+                                    "current_duty":   self.current_duty if self.current_duty >= 0 else 0,
+                                    "manual_mode":    self.manual_mode,
+                                    "version":        __version__,
                                 }
                             conn.sendall((json.dumps(state) + "\n").encode("utf-8"))
 
@@ -363,10 +375,19 @@ class FanDaemon:
                     continue
 
             # ----------------------------------------------------------------
-            # Phase 2: Read internal fan RPM
+            # Phase 2: Read source value (RPM or Temperature)
             # ----------------------------------------------------------------
-            self.internal_rpm = read_internal_rpm(self.config)
-            logger.debug("RPM interni: %d", self.internal_rpm)
+            control_source = self.config.get("control_source", "rpm")
+
+            if control_source == "temp":
+                temp = read_temperature(self.config)
+                self.source_value = temp if temp is not None else 0
+                self.internal_rpm = 0  # Not used in temp mode
+                logger.debug("Temperatura: %.1f°C", self.source_value)
+            else:
+                self.internal_rpm = read_internal_rpm(self.config)
+                self.source_value = self.internal_rpm
+                logger.debug("RPM interni: %d", self.internal_rpm)
 
             # ----------------------------------------------------------------
             # Phase 3: Calculate duty and send command (only on change)
@@ -377,15 +398,21 @@ class FanDaemon:
 
             if in_manual:
                 target_duty = man_duty
+            elif control_source == "temp":
+                target_duty = compute_target_duty_temp(self.source_value, self.config)
             else:
                 target_duty = compute_target_duty(self.internal_rpm, self.config)
 
             if target_duty != self.current_duty:
+                if control_source == "temp":
+                    source_str = "Temp: %.1f°C" % self.source_value
+                else:
+                    source_str = "RPM interni: %d" % self.internal_rpm
                 logger.info(
-                    "Cambio duty: %s%% -> %s%% (RPM interni: %d%s)",
+                    "Cambio duty: %s%% -> %s%% (%s%s)",
                     self.current_duty if self.current_duty >= 0 else "N/A",
                     target_duty,
-                    self.internal_rpm,
+                    source_str,
                     " [MANUALE]" if in_manual else "",
                 )
                 success = self.pico_adapter.set_duty(target_duty)
